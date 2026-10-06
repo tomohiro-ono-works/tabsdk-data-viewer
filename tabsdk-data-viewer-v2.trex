@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <dashboard-extension id="com.example.tabsdk-data-viewer" extension-version="0.1.1">
+    <default-locale>ja_JP</default-locale>
+    <name resource-id="name"/>
+    <description>Tableau DataTableReader を使った大容量帳票ビューア</description>
+    <author
+      name="Development Team"
+      email="support@example.com"
+      organization="Example"
+      website="https://example.com"/>
+    <min-api-version>1.10</min-api-version>
+    <source-location>
+      <url>https://tomohiro-ono-works.github.io/tabsdk-data-viewer/</url>
+    </source-location>
+    <icon>iVBORw0KGgoAAAANSUhEUgAAAEYAAABGCAYAAABxLuKEAAAApElEQVR4nO3QwQ3AIBDAsNL9dz4GQHnDw54gypqZj9N/O+BVxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmGBMMCYYE4wJxgRjgjHBmLAB84QDiRFuP6kAAAAASUVORK5CYII=</icon>
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+  </dashboard-extension>
+  <resources>
+    <resource id="name">
+      <text locale="ja_JP">tabsdk-data-viewer</text>
+    </resource>
+  </resources>
+</manifest>
