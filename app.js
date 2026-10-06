@@ -84,7 +84,11 @@
     const tables = await worksheet.getUnderlyingTablesAsync();
 
     if (!tables.length) {
-      throw new Error('Underlying Logical Table がありません。');
+      throw new Error(
+        '対象Worksheet「' + worksheet.name + '」からLogical Tableを特定できません。' +
+        ' 対象データソースのメジャーを1つ、このWorksheetで使用してください' +
+        '（例: SUM(Sales) をマークの「詳細」に追加）。'
+      );
     }
 
     const logicalTable = tables[0];
