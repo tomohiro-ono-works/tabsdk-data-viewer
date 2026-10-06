@@ -12,6 +12,8 @@
 
     <author
       name="Development Team"
+      email="support@example.com"
+      organization="Example"
       website="https://example.com"/>
 
     <min-api-version>1.10</min-api-version>
@@ -20,9 +22,12 @@
       <url>https://tomohiro-ono-works.github.io/tabsdk-data-viewer/</url>
     </source-location>
 
+    <icon></icon>
+
     <permissions>
       <permission>full data</permission>
     </permissions>
+
   </dashboard-extension>
 
   <resources>
