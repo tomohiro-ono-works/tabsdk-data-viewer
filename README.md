@@ -1,53 +1,44 @@
 # tabsdk-data-viewer
 
-Tableau Dashboard Extension 用の大容量帳票ビューア PoC です。
+Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューアです。
 
-## 目的
+## 現在の状態
 
-Tableau Extensions API の DataTableReader を使い、
-Underlying Logical Table のデータを 200 行単位でブラウザへ渡して表示します。
+タスク1として Dashboard Extension から Viz Extension へ移行済みです。
+
+- `worksheet-extension` マニフェストへ変更
+- `tableau.extensions.worksheetContent.worksheet` を利用
+- GitHub Pages から HTTPS 配信
+- DataTableReader による 200 行ページングは次タスクで実装
+
+## 目標構成
 
 ```text
 BigQuery / CSV / Excel / DB
           ↓
        Tableau
           ↓
-       Worksheet
+      Worksheet
           ↓
-    Logical Table
+     Viz Extension
           ↓
-DataTableReader
+ DataTableReader
   200 rows/page
           ↓
  tabsdk-data-viewer
 ```
 
-## PoC仕様
+## 計画中の機能
 
 - 1ページ 200行
-- 最初の Worksheet を対象
-- 最初の Logical Table を対象
-- 前へ / 次へ
-- Tableau フィルター変更検知
-- フィルター変更後は「フィルタ未更新」
-- 更新ボタン押下で Reader を再生成
-- Reader 再生成後は 0 ページ目へ戻る
-
-## 未実装
-
-- Worksheet 選択UI
-- Logical Table 選択UI
-- 表示フィールド選択
-- ページ番号一覧
-- CSV 全件出力
-- XLSX 全件出力
-- 作成者設定画面
+- Tableau フィルター連動
+- Extension 内フィルター
+- 列幅・列順・固定列設定
+- 通常 / 棒グラフ / ヒートマップ
+- CSV / Clipboard / Excel エクスポート
+- 設定の Workbook 保存
 
 ## 配置
 
-静的ファイルを HTTPS で配信し、
-`tabsdk-data-viewer.trex` の `source-location` を
-実際の配信URLへ変更してください。
-
-リポジトリ固有のユーザー名・個人名・個人URLは、
-このプロジェクト内には記載しません。
+静的ファイルを HTTPS で配信し、`tabsdk-data-viewer.trex` の
+`source-location` からその URL を参照します。
