@@ -3,6 +3,7 @@
 
   const PAGE_SIZE = 200;
   const AUTO_REFRESH_DELAY_MS = 150;
+  const ENCODING_ORDER = ['rows', 'label'];
 
   let worksheet = null;
   let reader = null;
@@ -10,6 +11,7 @@
   let removeSummaryListener = null;
   let refreshTimer = null;
   let generation = 0;
+  let mappedFields = [];
 
   const $ = (id) => document.getElementById(id);
 
@@ -28,18 +30,166 @@
       busy || !reader || pageIndex >= reader.pageCount - 1;
   }
 
+  function rawValue(cell) {
+    if (!cell) return null;
+
+    if (cell.nativeValue !== undefined) {
+      return cell.nativeValue;
+    }
+
+    if (cell.value !== undefined) {
+      return cell.value;
+    }
+
+    return null;
+  }
+
   function displayValue(cell) {
     if (!cell) return '';
+
+    const raw = rawValue(cell);
+
+    if (raw === null || raw === undefined) {
+      return '';
+    }
+
     if (cell.formattedValue !== undefined && cell.formattedValue !== null) {
       return String(cell.formattedValue);
     }
-    if (cell.value !== undefined && cell.value !== null) {
-      return String(cell.value);
+
+    return String(raw);
+  }
+
+  function normalizeDataType(column) {
+    return String(column && column.dataType ? column.dataType : '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function alignmentClass(column, dataTable, cellIndex) {
+    const dataType = normalizeDataType(column);
+
+    if (
+      dataType.includes('int') ||
+      dataType.includes('float') ||
+      dataType.includes('double') ||
+      dataType.includes('decimal') ||
+      dataType.includes('number') ||
+      dataType.includes('numeric')
+    ) {
+      return 'cell-number';
     }
-    if (cell.nativeValue !== undefined && cell.nativeValue !== null) {
-      return String(cell.nativeValue);
+
+    if (dataType.includes('date') || dataType.includes('time')) {
+      return 'cell-date';
     }
-    return '';
+
+    if (dataType.includes('bool')) {
+      return 'cell-boolean';
+    }
+
+    for (const row of dataTable.data) {
+      const value = rawValue(row[cellIndex]);
+
+      if (value === null || value === undefined) continue;
+      if (typeof value === 'number') return 'cell-number';
+      if (typeof value === 'boolean') return 'cell-boolean';
+      if (value instanceof Date) return 'cell-date';
+
+      break;
+    }
+
+    return 'cell-text';
+  }
+
+  async function getMappedFields() {
+    const visualSpec = await worksheet.getVisualSpecificationAsync();
+
+    if (
+      !visualSpec ||
+      visualSpec.activeMarksSpecificationIndex === undefined ||
+      visualSpec.activeMarksSpecificationIndex < 0
+    ) {
+      return [];
+    }
+
+    const marksCard =
+      visualSpec.marksSpecifications[
+        visualSpec.activeMarksSpecificationIndex
+      ];
+
+    if (!marksCard || !Array.isArray(marksCard.encodings)) {
+      return [];
+    }
+
+    const result = [];
+    const seen = new Set();
+
+    ENCODING_ORDER.forEach((encodingId) => {
+      marksCard.encodings.forEach((encoding) => {
+        if (!encoding || encoding.id !== encodingId || !encoding.field) {
+          return;
+        }
+
+        const fieldName =
+          encoding.field.name ||
+          encoding.field.fieldName ||
+          encoding.field.caption ||
+          '';
+
+        if (!fieldName || seen.has(fieldName)) {
+          return;
+        }
+
+        seen.add(fieldName);
+        result.push({
+          encodingId,
+          fieldName
+        });
+      });
+    });
+
+    return result;
+  }
+
+  function resolveDisplayColumns(dataTable) {
+    const resolved = [];
+    const usedIndexes = new Set();
+
+    mappedFields.forEach((mappedField) => {
+      const index = dataTable.columns.findIndex((column, columnIndex) => {
+        if (usedIndexes.has(columnIndex)) return false;
+
+        const names = [
+          column.fieldName,
+          column.caption,
+          column.name
+        ].filter(Boolean);
+
+        return names.includes(mappedField.fieldName);
+      });
+
+      if (index < 0) {
+        console.warn(
+          'Mapped field was not found in summary data:',
+          mappedField.fieldName
+        );
+        return;
+      }
+
+      usedIndexes.add(index);
+      resolved.push({
+        column: dataTable.columns[index],
+        cellIndex:
+          dataTable.columns[index].index !== undefined &&
+          dataTable.columns[index].index !== null
+            ? dataTable.columns[index].index
+            : index,
+        fieldName: mappedField.fieldName
+      });
+    });
+
+    return resolved;
   }
 
   function renderTable(dataTable) {
@@ -50,29 +200,39 @@
     thead.innerHTML = '';
     tbody.innerHTML = '';
 
+    const displayColumns = resolveDisplayColumns(dataTable);
+
+    if (!displayColumns.length) {
+      return 0;
+    }
+
     const headerRow = document.createElement('tr');
 
-    dataTable.columns.forEach((column) => {
+    displayColumns.forEach(({ column, fieldName }) => {
       const th = document.createElement('th');
       th.textContent =
-        column.fieldName || column.caption || column.name || '';
+        column.fieldName ||
+        column.caption ||
+        column.name ||
+        fieldName;
       headerRow.appendChild(th);
     });
 
     thead.appendChild(headerRow);
+
+    const alignmentClasses = displayColumns.map(
+      ({ column, cellIndex }) =>
+        alignmentClass(column, dataTable, cellIndex)
+    );
 
     const fragment = document.createDocumentFragment();
 
     dataTable.data.forEach((row) => {
       const tr = document.createElement('tr');
 
-      dataTable.columns.forEach((column, index) => {
+      displayColumns.forEach(({ cellIndex }, displayIndex) => {
         const td = document.createElement('td');
-        const cellIndex =
-          column.index !== undefined && column.index !== null
-            ? column.index
-            : index;
-
+        td.classList.add(alignmentClasses[displayIndex]);
         td.textContent = displayValue(row[cellIndex]);
         tr.appendChild(td);
       });
@@ -81,11 +241,22 @@
     });
 
     tbody.appendChild(fragment);
+
+    return displayColumns.length;
+  }
+
+  function renderEmptyTable() {
+    const table = $('dataTable');
+    table.querySelector('thead').innerHTML = '';
+    table.querySelector('tbody').innerHTML = '';
   }
 
   function updatePager() {
     if (!reader) {
-      $('status').textContent = '-';
+      $('status').textContent =
+        mappedFields.length > 0
+          ? mappedFields.length + ' 列'
+          : '-';
       $('page').textContent = '-';
       $('prev').disabled = true;
       $('next').disabled = true;
@@ -95,6 +266,8 @@
     $('status').textContent =
       reader.totalRowCount.toLocaleString() +
       ' 行 / ' +
+      mappedFields.length +
+      ' 列 / ' +
       PAGE_SIZE +
       ' 行/ページ';
 
@@ -149,9 +322,18 @@
     }
 
     pageIndex = nextPage;
-    renderTable(dataTable);
+    const renderedColumnCount = renderTable(dataTable);
     updatePager();
-    setMessage('');
+
+    if (renderedColumnCount === 0) {
+      setMessage(
+        '「行」または「ラベル」に設定したフィールドをSummary Dataで確認できません。',
+        'error'
+      );
+    } else {
+      setMessage('');
+    }
+
     setBusy(false);
   }
 
@@ -170,12 +352,26 @@
 
     if (currentGeneration !== generation) return;
 
+    mappedFields = await getMappedFields();
+
+    if (currentGeneration !== generation) return;
+
+    if (!mappedFields.length) {
+      renderEmptyTable();
+      updatePager();
+      setMessage(
+        'TableauのViz Extension設定で「行」または「ラベル」にフィールドを追加してください。'
+      );
+      setBusy(false);
+      return;
+    }
+
     await createReader();
 
     if (currentGeneration !== generation) return;
 
     if (reader.pageCount === 0) {
-      renderTable({ columns: [], data: [] });
+      renderEmptyTable();
       updatePager();
       setMessage('表示対象のデータがありません。');
       setBusy(false);

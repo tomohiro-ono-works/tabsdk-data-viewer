@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
-  <worksheet-extension id="com.example.tabsdk-data-viewer" extension-version="0.2.0">
+  <worksheet-extension id="com.example.tabsdk-data-viewer" extension-version="0.3.0">
     <default-locale>ja_JP</default-locale>
     <name resource-id="name"/>
     <description>Tableau Viz Extension 用の大容量帳票ビューア</description>
@@ -14,6 +14,16 @@
       <url>https://tomohiro-ono-works.github.io/tabsdk-data-viewer/</url>
     </source-location>
     <icon/>
+    <encoding id="rows">
+      <display-name>行</display-name>
+      <fields max-count="50"/>
+      <encoding-icon token="text"/>
+    </encoding>
+    <encoding id="label">
+      <display-name>ラベル</display-name>
+      <fields max-count="50"/>
+      <encoding-icon token="text"/>
+    </encoding>
   </worksheet-extension>
   <resources>
     <resource id="name">
