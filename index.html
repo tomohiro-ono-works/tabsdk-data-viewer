@@ -11,16 +11,23 @@
     <header class="toolbar">
       <div class="title">Data Viewer</div>
       <div class="spacer"></div>
-      <button id="refreshFilter" class="button status-button" disabled>更新済</button>
+      <button id="refreshData" class="button">再読み込み</button>
     </header>
+
     <main class="main">
       <div id="message" class="message">読み込み中...</div>
+
       <div class="table-wrap">
-        <table id="dataTable"><thead></thead><tbody></tbody></table>
+        <table id="dataTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </main>
+
     <footer class="footer">
       <div id="status">-</div>
+
       <div class="pager">
         <button id="prev" class="button">前へ</button>
         <span id="page">-</span>
@@ -28,6 +35,7 @@
       </div>
     </footer>
   </div>
+
   <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
   <script src="./app.js"></script>
 </body>
