@@ -45,7 +45,18 @@ Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューア�
 - 数値・日付範囲は `applyRangeFilterAsync()`
 - 文字列・Booleanは `applyFilterAsync()`
 - フィルター適用後はReaderを再生成して1ページ目へ戻る
-- 文字列の候補プルダウンと候補値キャッシュはタスク6で実装
+
+### タスク6: プルダウン候補値キャッシュ
+- 文字列列の「候補」ボタンからTableau側のカテゴリDomainを取得
+- `getDomainAsync(FilterDomainType.Database)` を利用
+- 100件以下: プルダウンとして利用
+- 101件以上: テキスト完全一致フィルターを継続
+- 候補値は `tableau.extensions.settings` にJSON保存
+- Workbook再オープン時は保存済み候補を再利用
+- 「↻」で候補値を手動再取得
+- 候補値再取得失敗時は既存キャッシュを保持
+- Tableau側でDomain取得するため、候補化するフィールドはTableauのカテゴリフィルターとして認識されている必要あり
+- タスク7の設定画面で「テキスト / プルダウン」の選択UIへ統合予定
 
 ## 目標構成
 
@@ -65,9 +76,7 @@ BigQuery / CSV / Excel / DB
 ```
 
 ## 次の予定
-- プルダウン候補値キャッシュ
 - 列幅・列順・固定列設定
 - 通常 / 棒グラフ / ヒートマップ
 - ソート
 - CSV / Clipboard / Excel エクスポート
-- 設定のWorkbook保存

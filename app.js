@@ -4,6 +4,8 @@
   const PAGE_SIZE = 200;
   const AUTO_REFRESH_DELAY_MS = 150;
   const ENCODING_ORDER = ['rows', 'label'];
+  const DROPDOWN_CACHE_KEY = 'dropdownCandidateCacheV1';
+  const DROPDOWN_CANDIDATE_LIMIT = 100;
 
   let worksheet = null;
   let reader = null;
@@ -15,6 +17,8 @@
   let generation = 0;
   let mappedFields = [];
   let filterState = [];
+  let dropdownCandidateCache = {};
+  let lastDataTable = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -258,6 +262,169 @@
     return normalized;
   }
 
+  function loadDropdownCandidateCache() {
+    const raw = tableau.extensions.settings.get(DROPDOWN_CACHE_KEY);
+
+    if (!raw) {
+      dropdownCandidateCache = {};
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      dropdownCandidateCache =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed
+          : {};
+    } catch (error) {
+      console.warn('Dropdown candidate cache could not be parsed.', error);
+      dropdownCandidateCache = {};
+    }
+  }
+
+  async function saveDropdownCandidateCache(nextCache) {
+    tableau.extensions.settings.set(
+      DROPDOWN_CACHE_KEY,
+      JSON.stringify(nextCache)
+    );
+
+    await tableau.extensions.settings.saveAsync();
+    dropdownCandidateCache = nextCache;
+  }
+
+  function getDropdownCacheEntry(fieldName) {
+    const entry = dropdownCandidateCache[fieldName];
+
+    if (!entry || typeof entry !== 'object') {
+      return null;
+    }
+
+    return entry;
+  }
+
+  function domainValuesFromResult(domain) {
+    if (Array.isArray(domain)) {
+      return domain;
+    }
+
+    if (domain && Array.isArray(domain.values)) {
+      return domain.values;
+    }
+
+    if (domain && Array.isArray(domain.domainValues)) {
+      return domain.domainValues;
+    }
+
+    return [];
+  }
+
+  function normalizeCandidate(value) {
+    const normalized = normalizeDataValue(value);
+
+    return {
+      value: normalized.value,
+      formattedValue: normalized.formattedValue
+    };
+  }
+
+  function candidateKey(candidate) {
+    if (candidate.value === null || candidate.value === undefined) {
+      return '__NULL__';
+    }
+
+    return typeof candidate.value + ':' + String(candidate.value);
+  }
+
+  async function fetchDropdownCandidates(fieldName) {
+    const rawFilters = await worksheet.getFiltersAsync();
+
+    const categoricalFilter = rawFilters.find((filter) => {
+      return (
+        filter &&
+        filter.fieldName === fieldName &&
+        String(filter.filterType || '').toLowerCase() === 'categorical' &&
+        typeof filter.getDomainAsync === 'function'
+      );
+    });
+
+    if (!categoricalFilter) {
+      throw new Error(
+        '候補値をTableau側で取得するには「' +
+          fieldName +
+          '」をTableauのフィルター棚に追加してください（「すべて」のままで構いません）。'
+      );
+    }
+
+    const domainType =
+      tableau.FilterDomainType && tableau.FilterDomainType.Database
+        ? tableau.FilterDomainType.Database
+        : 'database';
+
+    const domain = await categoricalFilter.getDomainAsync(domainType);
+    const rawValues = domainValuesFromResult(domain);
+    const candidates = [];
+    const seen = new Set();
+
+    for (const value of rawValues) {
+      const candidate = normalizeCandidate(value);
+      const key = candidateKey(candidate);
+
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      candidates.push(candidate);
+
+      if (candidates.length > DROPDOWN_CANDIDATE_LIMIT) {
+        break;
+      }
+    }
+
+    const isLimited =
+      !!(domain && domain.isDomainLimited === true);
+
+    const tooMany =
+      candidates.length > DROPDOWN_CANDIDATE_LIMIT || isLimited;
+
+    const nextEntry = tooMany
+      ? {
+          status: 'too-many',
+          count: DROPDOWN_CANDIDATE_LIMIT + 1,
+          values: [],
+          updatedAt: new Date().toISOString()
+        }
+      : {
+          status: 'ready',
+          count: candidates.length,
+          values: candidates,
+          updatedAt: new Date().toISOString()
+        };
+
+    const nextCache = Object.assign({}, dropdownCandidateCache, {
+      [fieldName]: nextEntry
+    });
+
+    await saveDropdownCandidateCache(nextCache);
+
+    return nextEntry;
+  }
+
+  async function refreshDropdownCandidates(fieldName) {
+    const previousEntry = getDropdownCacheEntry(fieldName);
+
+    try {
+      return await fetchDropdownCandidates(fieldName);
+    } catch (error) {
+      if (previousEntry) {
+        console.warn(
+          'Candidate refresh failed. Existing cache was preserved.',
+          error
+        );
+      }
+
+      throw error;
+    }
+  }
+
   async function getWorksheetFilters() {
     const filters = await worksheet.getFiltersAsync();
     return filters.map(normalizeFilter);
@@ -403,7 +570,122 @@
       .catch(showError);
   }
 
+  function rerenderCurrentTable() {
+    if (lastDataTable) {
+      renderTable(lastDataTable);
+    }
+  }
+
+  function createDropdownFilter(columnInfo, cacheEntry) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-control filter-dropdown-control';
+
+    const select = document.createElement('select');
+    select.className = 'filter-input filter-dropdown-select';
+
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'すべて';
+    select.appendChild(allOption);
+
+    cacheEntry.values.forEach((candidate, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent =
+        candidate.formattedValue ||
+        (candidate.value === null || candidate.value === undefined
+          ? '(Null)'
+          : String(candidate.value));
+      select.appendChild(option);
+    });
+
+    const active = findFilter(columnInfo.fieldName);
+
+    if (
+      active &&
+      active.filterType === 'categorical' &&
+      active.appliedValues.length === 1
+    ) {
+      const activeKey = candidateKey({
+        value: active.appliedValues[0].value
+      });
+
+      const selectedIndex = cacheEntry.values.findIndex(
+        (candidate) => candidateKey(candidate) === activeKey
+      );
+
+      if (selectedIndex >= 0) {
+        select.value = String(selectedIndex);
+      }
+    }
+
+    select.addEventListener('change', () => {
+      runFilterAction(() => {
+        if (select.value === '') {
+          return clearFieldFilter(columnInfo.fieldName);
+        }
+
+        const candidate =
+          cacheEntry.values[Number(select.value)];
+
+        if (!candidate) {
+          throw new Error('選択した候補値を取得できません。');
+        }
+
+        return applyCategoricalFilter(
+          columnInfo.fieldName,
+          [candidate.value]
+        );
+      });
+    });
+
+    const refreshButton = createButton(
+      '↻',
+      'filter-candidate-button',
+      () => {
+        setBusy(true);
+        setMessage('候補値を再取得しています...', 'loading');
+
+        refreshDropdownCandidates(columnInfo.fieldName)
+          .then((entry) => {
+            rerenderCurrentTable();
+
+            setMessage(
+              entry.status === 'ready'
+                ? '「' +
+                    columnInfo.fieldName +
+                    '」の候補値 ' +
+                    entry.count +
+                    ' 件をWorkbookに保存しました。'
+                : '「' +
+                    columnInfo.fieldName +
+                    '」は候補値が101件以上のため、テキストフィルターを使用します。'
+            );
+
+            setBusy(false);
+          })
+          .catch(showError);
+      }
+    );
+    refreshButton.title = '候補値を再取得';
+
+    wrapper.appendChild(select);
+    wrapper.appendChild(refreshButton);
+
+    return wrapper;
+  }
+
   function createTextFilter(columnInfo) {
+    const cacheEntry = getDropdownCacheEntry(columnInfo.fieldName);
+
+    if (
+      cacheEntry &&
+      cacheEntry.status === 'ready' &&
+      Array.isArray(cacheEntry.values)
+    ) {
+      return createDropdownFilter(columnInfo, cacheEntry);
+    }
+
     const wrapper = document.createElement('div');
     wrapper.className = 'filter-control filter-text-control';
 
@@ -446,6 +728,44 @@
     wrapper.appendChild(
       createButton('適用', 'filter-button', apply)
     );
+
+    const candidateButton = createButton(
+      cacheEntry && cacheEntry.status === 'too-many'
+        ? '101+'
+        : '候補',
+      'filter-candidate-button',
+      () => {
+        setBusy(true);
+        setMessage('候補値を取得しています...', 'loading');
+
+        refreshDropdownCandidates(columnInfo.fieldName)
+          .then((entry) => {
+            rerenderCurrentTable();
+
+            setMessage(
+              entry.status === 'ready'
+                ? '「' +
+                    columnInfo.fieldName +
+                    '」の候補値 ' +
+                    entry.count +
+                    ' 件をWorkbookに保存しました。'
+                : '「' +
+                    columnInfo.fieldName +
+                    '」は候補値が101件以上のため、テキストフィルターを使用します。'
+            );
+
+            setBusy(false);
+          })
+          .catch(showError);
+      }
+    );
+
+    candidateButton.title =
+      cacheEntry && cacheEntry.status === 'too-many'
+        ? '候補値を再取得（現在は101件以上）'
+        : 'Tableau側からDistinct候補値を取得';
+
+    wrapper.appendChild(candidateButton);
     wrapper.appendChild(
       createButton('×', 'filter-clear', () => {
         input.value = '';
@@ -789,6 +1109,7 @@
     }
 
     pageIndex = nextPage;
+    lastDataTable = dataTable;
     const renderedColumnCount = renderTable(dataTable);
     updatePager();
 
@@ -890,6 +1211,8 @@
       );
     }
 
+    loadDropdownCandidateCache();
+
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
       function () {
@@ -952,6 +1275,8 @@
     getFilters: getWorksheetFilters,
     applyCategoricalFilter,
     applyRangeFilter,
-    clearFilter: clearFieldFilter
+    clearFilter: clearFieldFilter,
+    refreshDropdownCandidates,
+    getDropdownCacheEntry
   });
 })();
