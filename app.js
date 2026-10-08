@@ -9,9 +9,12 @@
   let reader = null;
   let pageIndex = 0;
   let removeSummaryListener = null;
+  let removeFilterListener = null;
   let refreshTimer = null;
+  let pendingRefreshReason = 'initial';
   let generation = 0;
   let mappedFields = [];
+  let filterState = [];
 
   const $ = (id) => document.getElementById(id);
 
@@ -251,11 +254,111 @@
     table.querySelector('tbody').innerHTML = '';
   }
 
+  function normalizeFilter(filter) {
+    const normalized = {
+      fieldName: filter.fieldName || '',
+      filterType: filter.filterType || '',
+      appliedValues: []
+    };
+
+    if (Array.isArray(filter.appliedValues)) {
+      normalized.appliedValues = filter.appliedValues.map((value) => ({
+        value:
+          value && value.value !== undefined
+            ? value.value
+            : null,
+        formattedValue:
+          value && value.formattedValue !== undefined
+            ? value.formattedValue
+            : ''
+      }));
+    }
+
+    if (filter.minValue) {
+      normalized.minValue = {
+        value:
+          filter.minValue.value !== undefined
+            ? filter.minValue.value
+            : null,
+        formattedValue:
+          filter.minValue.formattedValue !== undefined
+            ? filter.minValue.formattedValue
+            : ''
+      };
+    }
+
+    if (filter.maxValue) {
+      normalized.maxValue = {
+        value:
+          filter.maxValue.value !== undefined
+            ? filter.maxValue.value
+            : null,
+        formattedValue:
+          filter.maxValue.formattedValue !== undefined
+            ? filter.maxValue.formattedValue
+            : ''
+      };
+    }
+
+    return normalized;
+  }
+
+  async function getWorksheetFilters() {
+    const filters = await worksheet.getFiltersAsync();
+    return filters.map(normalizeFilter);
+  }
+
+  async function refreshFilterState() {
+    try {
+      filterState = await getWorksheetFilters();
+    } catch (error) {
+      console.warn('getFiltersAsync failed', error);
+      filterState = [];
+    }
+  }
+
+  async function applyCategoricalFilter(fieldName, values) {
+    if (!fieldName) {
+      throw new Error('フィルター対象フィールドが指定されていません。');
+    }
+
+    const normalizedValues = Array.isArray(values)
+      ? values.filter((value) => value !== null && value !== undefined)
+      : [];
+
+    if (!normalizedValues.length) {
+      await clearFieldFilter(fieldName);
+      return;
+    }
+
+    await worksheet.applyFilterAsync(
+      fieldName,
+      normalizedValues,
+      tableau.FilterUpdateType.Replace
+    );
+
+    scheduleRefresh('extension-filter-changed');
+  }
+
+  async function clearFieldFilter(fieldName) {
+    if (!fieldName) {
+      throw new Error('フィルター対象フィールドが指定されていません。');
+    }
+
+    await worksheet.clearFilterAsync(fieldName);
+    scheduleRefresh('extension-filter-changed');
+  }
+
   function updatePager() {
+    const filterText =
+      filterState.length > 0
+        ? ' / フィルター ' + filterState.length
+        : '';
+
     if (!reader) {
       $('status').textContent =
         mappedFields.length > 0
-          ? mappedFields.length + ' 列'
+          ? mappedFields.length + ' 列' + filterText
           : '-';
       $('page').textContent = '-';
       $('prev').disabled = true;
@@ -269,7 +372,8 @@
       mappedFields.length +
       ' 列 / ' +
       PAGE_SIZE +
-      ' 行/ページ';
+      ' 行/ページ' +
+      filterText;
 
     $('page').textContent =
       reader.pageCount === 0
@@ -341,10 +445,17 @@
     const currentGeneration = ++generation;
 
     setBusy(true);
+
+    const isFilterRefresh =
+      reason === 'filter-changed' ||
+      reason === 'extension-filter-changed';
+
     setMessage(
-      reason === 'summary-data-changed'
-        ? 'データ変更を反映しています...'
-        : 'データを読み込んでいます...',
+      isFilterRefresh
+        ? 'フィルター変更を反映しています...'
+        : reason === 'summary-data-changed'
+          ? 'データ変更を反映しています...'
+          : 'データを読み込んでいます...',
       'loading'
     );
 
@@ -353,6 +464,10 @@
     if (currentGeneration !== generation) return;
 
     mappedFields = await getMappedFields();
+
+    if (currentGeneration !== generation) return;
+
+    await refreshFilterState();
 
     if (currentGeneration !== generation) return;
 
@@ -381,14 +496,18 @@
     await loadPage(0, currentGeneration);
   }
 
-  function scheduleAutoRefresh() {
+  function scheduleRefresh(reason) {
+    pendingRefreshReason = reason || 'summary-data-changed';
+
     if (refreshTimer) {
       clearTimeout(refreshTimer);
     }
 
     refreshTimer = setTimeout(function () {
+      const reasonToUse = pendingRefreshReason;
       refreshTimer = null;
-      refreshData('summary-data-changed').catch(showError);
+      pendingRefreshReason = 'summary-data-changed';
+      refreshData(reasonToUse).catch(showError);
     }, AUTO_REFRESH_DELAY_MS);
   }
 
@@ -410,7 +529,16 @@
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
-      scheduleAutoRefresh
+      function () {
+        scheduleRefresh('summary-data-changed');
+      }
+    );
+
+    removeFilterListener = worksheet.addEventListener(
+      tableau.TableauEventType.FilterChanged,
+      function () {
+        scheduleRefresh('filter-changed');
+      }
     );
 
     await refreshData('initial');
@@ -446,10 +574,21 @@
       if (removeSummaryListener) removeSummaryListener();
     } catch (_) {}
 
+    try {
+      if (removeFilterListener) removeFilterListener();
+    } catch (_) {}
+
     if (reader) {
       reader.releaseAsync().catch(function () {});
     }
   });
 
   initialize().catch(showError);
+
+  // Task 5 will connect the filter UI to these shared functions.
+  window.tabsdkDataViewerFilters = Object.freeze({
+    getFilters: getWorksheetFilters,
+    applyCategoricalFilter,
+    clearFilter: clearFieldFilter
+  });
 })();
