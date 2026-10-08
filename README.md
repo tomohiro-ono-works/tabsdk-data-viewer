@@ -26,37 +26,21 @@ Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューア�
 - 数値は右寄せ
 - 日付 / Booleanは中央寄せ
 
-### タスク4: フィルター基盤
+### タスク4: Tableau標準フィルター連動
 - `FilterChanged` を監視
 - Tableau標準フィルター変更時にReaderを破棄・再生成
 - フィルター変更後は1ページ目へ戻る
 - `SummaryDataChanged` と `FilterChanged` の再取得をデバウンス
-- 現在のWorksheetフィルター状態を取得
-- カテゴリフィルター共通関数
-- 現在のフィルター数をステータス表示
+- Extension内には独自フィルターUIを持たない
 
-### タスク5: Extension内フィルターUI
-- 各列ヘッダー下にフィルター行を表示
-- 文字列: 完全一致入力
-- 数値: 下限 / 上限
-- 日付: 開始日 / 終了日
-- Boolean: True / False / すべて
-- 各条件の解除
-- 数値・日付範囲は `applyRangeFilterAsync()`
-- 文字列・Booleanは `applyFilterAsync()`
-- フィルター適用後はReaderを再生成して1ページ目へ戻る
+## 廃止した機能
+- Extension内の文字列 / 数値 / 日付 / Booleanフィルター
+- `applyFilterAsync()` / `applyRangeFilterAsync()` による独自フィルター操作
+- Distinct候補値取得
+- プルダウン候補キャッシュ
+- フィルター用Workbook設定
 
-### タスク6: プルダウン候補値キャッシュ
-- 文字列列の「候補」ボタンからTableau側のカテゴリDomainを取得
-- `getDomainAsync(FilterDomainType.Database)` を利用
-- 100件以下: プルダウンとして利用
-- 101件以上: テキスト完全一致フィルターを継続
-- 候補値は `tableau.extensions.settings` にJSON保存
-- Workbook再オープン時は保存済み候補を再利用
-- 「↻」で候補値を手動再取得
-- 候補値再取得失敗時は既存キャッシュを保持
-- Tableau側でDomain取得するため、候補化するフィールドはTableauのカテゴリフィルターとして認識されている必要あり
-- タスク7の設定画面で「テキスト / プルダウン」の選択UIへ統合予定
+フィルター操作はTableau標準機能に統一します。
 
 ## 目標構成
 
@@ -64,6 +48,8 @@ Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューア�
 BigQuery / CSV / Excel / DB
           ↓
        Tableau
+          ↓
+  Tableau標準フィルター
           ↓
       Worksheet
           ↓

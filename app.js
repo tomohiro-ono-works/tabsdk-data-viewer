@@ -4,8 +4,6 @@
   const PAGE_SIZE = 200;
   const AUTO_REFRESH_DELAY_MS = 150;
   const ENCODING_ORDER = ['rows', 'label'];
-  const DROPDOWN_CACHE_KEY = 'dropdownCandidateCacheV1';
-  const DROPDOWN_CANDIDATE_LIMIT = 100;
 
   let worksheet = null;
   let reader = null;
@@ -16,9 +14,6 @@
   let pendingRefreshReason = 'initial';
   let generation = 0;
   let mappedFields = [];
-  let filterState = [];
-  let dropdownCandidateCache = {};
-  let lastDataTable = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -73,7 +68,7 @@
       .toLowerCase();
   }
 
-  function classifyColumn(column, dataTable, cellIndex) {
+  function alignmentClass(column, dataTable, cellIndex) {
     const dataType = normalizeDataType(column);
 
     if (
@@ -84,34 +79,28 @@
       dataType.includes('number') ||
       dataType.includes('numeric')
     ) {
-      return 'number';
+      return 'cell-number';
     }
 
     if (dataType.includes('date') || dataType.includes('time')) {
-      return 'date';
+      return 'cell-date';
     }
 
     if (dataType.includes('bool')) {
-      return 'boolean';
+      return 'cell-boolean';
     }
 
     for (const row of dataTable.data) {
       const value = rawValue(row[cellIndex]);
 
       if (value === null || value === undefined) continue;
-      if (typeof value === 'number') return 'number';
-      if (typeof value === 'boolean') return 'boolean';
-      if (value instanceof Date) return 'date';
+      if (typeof value === 'number') return 'cell-number';
+      if (typeof value === 'boolean') return 'cell-boolean';
+      if (value instanceof Date) return 'cell-date';
+
       break;
     }
 
-    return 'text';
-  }
-
-  function alignmentClass(kind) {
-    if (kind === 'number') return 'cell-number';
-    if (kind === 'date') return 'cell-date';
-    if (kind === 'boolean') return 'cell-boolean';
     return 'cell-text';
   }
 
@@ -190,784 +179,19 @@
         return;
       }
 
-      const column = dataTable.columns[index];
-      const cellIndex =
-        column.index !== undefined && column.index !== null
-          ? column.index
-          : index;
-
       usedIndexes.add(index);
       resolved.push({
-        column,
-        cellIndex,
-        fieldName:
-          column.fieldName ||
-          column.caption ||
-          column.name ||
-          mappedField.fieldName,
-        kind: classifyColumn(column, dataTable, cellIndex)
+        column: dataTable.columns[index],
+        cellIndex:
+          dataTable.columns[index].index !== undefined &&
+          dataTable.columns[index].index !== null
+            ? dataTable.columns[index].index
+            : index,
+        fieldName: mappedField.fieldName
       });
     });
 
     return resolved;
-  }
-
-  function normalizeDataValue(value) {
-    if (!value) {
-      return {
-        value: null,
-        formattedValue: ''
-      };
-    }
-
-    let native = null;
-
-    if (value.nativeValue !== undefined) {
-      native = value.nativeValue;
-    } else if (value.value !== undefined) {
-      native = value.value;
-    }
-
-    return {
-      value: native,
-      formattedValue:
-        value.formattedValue !== undefined && value.formattedValue !== null
-          ? String(value.formattedValue)
-          : native === null || native === undefined
-            ? ''
-            : String(native)
-    };
-  }
-
-  function normalizeFilter(filter) {
-    const normalized = {
-      fieldName: filter.fieldName || '',
-      filterType: filter.filterType || '',
-      appliedValues: []
-    };
-
-    if (Array.isArray(filter.appliedValues)) {
-      normalized.appliedValues =
-        filter.appliedValues.map(normalizeDataValue);
-    }
-
-    if (filter.minValue) {
-      normalized.minValue = normalizeDataValue(filter.minValue);
-    }
-
-    if (filter.maxValue) {
-      normalized.maxValue = normalizeDataValue(filter.maxValue);
-    }
-
-    return normalized;
-  }
-
-  function loadDropdownCandidateCache() {
-    const raw = tableau.extensions.settings.get(DROPDOWN_CACHE_KEY);
-
-    if (!raw) {
-      dropdownCandidateCache = {};
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      dropdownCandidateCache =
-        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-          ? parsed
-          : {};
-    } catch (error) {
-      console.warn('Dropdown candidate cache could not be parsed.', error);
-      dropdownCandidateCache = {};
-    }
-  }
-
-  async function saveDropdownCandidateCache(nextCache) {
-    tableau.extensions.settings.set(
-      DROPDOWN_CACHE_KEY,
-      JSON.stringify(nextCache)
-    );
-
-    await tableau.extensions.settings.saveAsync();
-    dropdownCandidateCache = nextCache;
-  }
-
-  function getDropdownCacheEntry(fieldName) {
-    const entry = dropdownCandidateCache[fieldName];
-
-    if (!entry || typeof entry !== 'object') {
-      return null;
-    }
-
-    return entry;
-  }
-
-  function domainValuesFromResult(domain) {
-    if (Array.isArray(domain)) {
-      return domain;
-    }
-
-    if (domain && Array.isArray(domain.values)) {
-      return domain.values;
-    }
-
-    if (domain && Array.isArray(domain.domainValues)) {
-      return domain.domainValues;
-    }
-
-    return [];
-  }
-
-  function normalizeCandidate(value) {
-    const normalized = normalizeDataValue(value);
-
-    return {
-      value: normalized.value,
-      formattedValue: normalized.formattedValue
-    };
-  }
-
-  function candidateKey(candidate) {
-    if (candidate.value === null || candidate.value === undefined) {
-      return '__NULL__';
-    }
-
-    return typeof candidate.value + ':' + String(candidate.value);
-  }
-
-  async function fetchDropdownCandidates(fieldName) {
-    const rawFilters = await worksheet.getFiltersAsync();
-
-    const categoricalFilter = rawFilters.find((filter) => {
-      return (
-        filter &&
-        filter.fieldName === fieldName &&
-        String(filter.filterType || '').toLowerCase() === 'categorical' &&
-        typeof filter.getDomainAsync === 'function'
-      );
-    });
-
-    if (!categoricalFilter) {
-      throw new Error(
-        '候補値をTableau側で取得するには「' +
-          fieldName +
-          '」をTableauのフィルター棚に追加してください（「すべて」のままで構いません）。'
-      );
-    }
-
-    const domainType =
-      tableau.FilterDomainType && tableau.FilterDomainType.Database
-        ? tableau.FilterDomainType.Database
-        : 'database';
-
-    const domain = await categoricalFilter.getDomainAsync(domainType);
-    const rawValues = domainValuesFromResult(domain);
-    const candidates = [];
-    const seen = new Set();
-
-    for (const value of rawValues) {
-      const candidate = normalizeCandidate(value);
-      const key = candidateKey(candidate);
-
-      if (seen.has(key)) continue;
-
-      seen.add(key);
-      candidates.push(candidate);
-
-      if (candidates.length > DROPDOWN_CANDIDATE_LIMIT) {
-        break;
-      }
-    }
-
-    const isLimited =
-      !!(domain && domain.isDomainLimited === true);
-
-    const tooMany =
-      candidates.length > DROPDOWN_CANDIDATE_LIMIT || isLimited;
-
-    const nextEntry = tooMany
-      ? {
-          status: 'too-many',
-          count: DROPDOWN_CANDIDATE_LIMIT + 1,
-          values: [],
-          updatedAt: new Date().toISOString()
-        }
-      : {
-          status: 'ready',
-          count: candidates.length,
-          values: candidates,
-          updatedAt: new Date().toISOString()
-        };
-
-    const nextCache = Object.assign({}, dropdownCandidateCache, {
-      [fieldName]: nextEntry
-    });
-
-    await saveDropdownCandidateCache(nextCache);
-
-    return nextEntry;
-  }
-
-  async function refreshDropdownCandidates(fieldName) {
-    const previousEntry = getDropdownCacheEntry(fieldName);
-
-    try {
-      return await fetchDropdownCandidates(fieldName);
-    } catch (error) {
-      if (previousEntry) {
-        console.warn(
-          'Candidate refresh failed. Existing cache was preserved.',
-          error
-        );
-      }
-
-      throw error;
-    }
-  }
-
-  async function getWorksheetFilters() {
-    const filters = await worksheet.getFiltersAsync();
-    return filters.map(normalizeFilter);
-  }
-
-  async function refreshFilterState() {
-    try {
-      filterState = await getWorksheetFilters();
-    } catch (error) {
-      console.warn('getFiltersAsync failed', error);
-      filterState = [];
-    }
-  }
-
-  function findFilter(fieldName) {
-    return filterState.find((filter) => filter.fieldName === fieldName);
-  }
-
-  async function applyCategoricalFilter(fieldName, values) {
-    if (!fieldName) {
-      throw new Error('フィルター対象フィールドが指定されていません。');
-    }
-
-    const normalizedValues = Array.isArray(values)
-      ? values.filter((value) => value !== null && value !== undefined)
-      : [];
-
-    if (!normalizedValues.length) {
-      await clearFieldFilter(fieldName);
-      return;
-    }
-
-    await worksheet.applyFilterAsync(
-      fieldName,
-      normalizedValues,
-      tableau.FilterUpdateType.Replace
-    );
-
-    scheduleRefresh('extension-filter-changed');
-  }
-
-  async function applyRangeFilter(fieldName, minValue, maxValue) {
-    if (!fieldName) {
-      throw new Error('フィルター対象フィールドが指定されていません。');
-    }
-
-    const options = {};
-
-    if (minValue !== null && minValue !== undefined) {
-      options.min = minValue;
-    }
-
-    if (maxValue !== null && maxValue !== undefined) {
-      options.max = maxValue;
-    }
-
-    if (!Object.keys(options).length) {
-      await clearFieldFilter(fieldName);
-      return;
-    }
-
-    await worksheet.applyRangeFilterAsync(fieldName, options);
-    scheduleRefresh('extension-filter-changed');
-  }
-
-  async function clearFieldFilter(fieldName) {
-    if (!fieldName) {
-      throw new Error('フィルター対象フィールドが指定されていません。');
-    }
-
-    await worksheet.clearFilterAsync(fieldName);
-    scheduleRefresh('extension-filter-changed');
-  }
-
-  function toNumberOrNull(value) {
-    if (value === '') return null;
-
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
-      throw new Error('数値フィルターに正しい数値を入力してください。');
-    }
-
-    return number;
-  }
-
-  function parseDateInput(value, endOfDay) {
-    if (!value) return null;
-
-    const parts = value.split('-').map(Number);
-
-    if (
-      parts.length !== 3 ||
-      !Number.isInteger(parts[0]) ||
-      !Number.isInteger(parts[1]) ||
-      !Number.isInteger(parts[2])
-    ) {
-      throw new Error('日付フィルターに正しい日付を入力してください。');
-    }
-
-    return new Date(
-      Date.UTC(
-        parts[0],
-        parts[1] - 1,
-        parts[2],
-        endOfDay ? 23 : 0,
-        endOfDay ? 59 : 0,
-        endOfDay ? 59 : 0,
-        endOfDay ? 999 : 0
-      )
-    );
-  }
-
-  function toDateInputValue(value) {
-    if (value === null || value === undefined || value === '') {
-      return '';
-    }
-
-    const date = value instanceof Date ? value : new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return '';
-    }
-
-    return date.toISOString().slice(0, 10);
-  }
-
-  function createButton(text, className, handler) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = text;
-    button.className = className;
-    button.addEventListener('click', handler);
-    return button;
-  }
-
-  function runFilterAction(action) {
-    setBusy(true);
-    setMessage('フィルターを適用しています...', 'loading');
-
-    Promise.resolve()
-      .then(action)
-      .catch(showError);
-  }
-
-  function rerenderCurrentTable() {
-    if (lastDataTable) {
-      renderTable(lastDataTable);
-    }
-  }
-
-  function createDropdownFilter(columnInfo, cacheEntry) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-control filter-dropdown-control';
-
-    const select = document.createElement('select');
-    select.className = 'filter-input filter-dropdown-select';
-
-    const allOption = document.createElement('option');
-    allOption.value = '';
-    allOption.textContent = 'すべて';
-    select.appendChild(allOption);
-
-    cacheEntry.values.forEach((candidate, index) => {
-      const option = document.createElement('option');
-      option.value = String(index);
-      option.textContent =
-        candidate.formattedValue ||
-        (candidate.value === null || candidate.value === undefined
-          ? '(Null)'
-          : String(candidate.value));
-      select.appendChild(option);
-    });
-
-    const active = findFilter(columnInfo.fieldName);
-
-    if (
-      active &&
-      active.filterType === 'categorical' &&
-      active.appliedValues.length === 1
-    ) {
-      const activeKey = candidateKey({
-        value: active.appliedValues[0].value
-      });
-
-      const selectedIndex = cacheEntry.values.findIndex(
-        (candidate) => candidateKey(candidate) === activeKey
-      );
-
-      if (selectedIndex >= 0) {
-        select.value = String(selectedIndex);
-      }
-    }
-
-    select.addEventListener('change', () => {
-      runFilterAction(() => {
-        if (select.value === '') {
-          return clearFieldFilter(columnInfo.fieldName);
-        }
-
-        const candidate =
-          cacheEntry.values[Number(select.value)];
-
-        if (!candidate) {
-          throw new Error('選択した候補値を取得できません。');
-        }
-
-        return applyCategoricalFilter(
-          columnInfo.fieldName,
-          [candidate.value]
-        );
-      });
-    });
-
-    const refreshButton = createButton(
-      '↻',
-      'filter-candidate-button',
-      () => {
-        setBusy(true);
-        setMessage('候補値を再取得しています...', 'loading');
-
-        refreshDropdownCandidates(columnInfo.fieldName)
-          .then((entry) => {
-            rerenderCurrentTable();
-
-            setMessage(
-              entry.status === 'ready'
-                ? '「' +
-                    columnInfo.fieldName +
-                    '」の候補値 ' +
-                    entry.count +
-                    ' 件をWorkbookに保存しました。'
-                : '「' +
-                    columnInfo.fieldName +
-                    '」は候補値が101件以上のため、テキストフィルターを使用します。'
-            );
-
-            setBusy(false);
-          })
-          .catch(showError);
-      }
-    );
-    refreshButton.title = '候補値を再取得';
-
-    wrapper.appendChild(select);
-    wrapper.appendChild(refreshButton);
-
-    return wrapper;
-  }
-
-  function createTextFilter(columnInfo) {
-    const cacheEntry = getDropdownCacheEntry(columnInfo.fieldName);
-
-    if (
-      cacheEntry &&
-      cacheEntry.status === 'ready' &&
-      Array.isArray(cacheEntry.values)
-    ) {
-      return createDropdownFilter(columnInfo, cacheEntry);
-    }
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-control filter-text-control';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'filter-input';
-    input.placeholder = '完全一致';
-
-    const active = findFilter(columnInfo.fieldName);
-
-    if (
-      active &&
-      active.filterType === 'categorical' &&
-      active.appliedValues.length === 1
-    ) {
-      input.value =
-        active.appliedValues[0].value === null ||
-        active.appliedValues[0].value === undefined
-          ? ''
-          : String(active.appliedValues[0].value);
-    }
-
-    const apply = () => {
-      const value = input.value.trim();
-
-      runFilterAction(() =>
-        value
-          ? applyCategoricalFilter(columnInfo.fieldName, [value])
-          : clearFieldFilter(columnInfo.fieldName)
-      );
-    };
-
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        apply();
-      }
-    });
-
-    wrapper.appendChild(input);
-    wrapper.appendChild(
-      createButton('適用', 'filter-button', apply)
-    );
-
-    const candidateButton = createButton(
-      cacheEntry && cacheEntry.status === 'too-many'
-        ? '101+'
-        : '候補',
-      'filter-candidate-button',
-      () => {
-        setBusy(true);
-        setMessage('候補値を取得しています...', 'loading');
-
-        refreshDropdownCandidates(columnInfo.fieldName)
-          .then((entry) => {
-            rerenderCurrentTable();
-
-            setMessage(
-              entry.status === 'ready'
-                ? '「' +
-                    columnInfo.fieldName +
-                    '」の候補値 ' +
-                    entry.count +
-                    ' 件をWorkbookに保存しました。'
-                : '「' +
-                    columnInfo.fieldName +
-                    '」は候補値が101件以上のため、テキストフィルターを使用します。'
-            );
-
-            setBusy(false);
-          })
-          .catch(showError);
-      }
-    );
-
-    candidateButton.title =
-      cacheEntry && cacheEntry.status === 'too-many'
-        ? '候補値を再取得（現在は101件以上）'
-        : 'Tableau側からDistinct候補値を取得';
-
-    wrapper.appendChild(candidateButton);
-    wrapper.appendChild(
-      createButton('×', 'filter-clear', () => {
-        input.value = '';
-        runFilterAction(() =>
-          clearFieldFilter(columnInfo.fieldName)
-        );
-      })
-    );
-
-    return wrapper;
-  }
-
-  function createNumberFilter(columnInfo) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-control filter-range-control';
-
-    const minInput = document.createElement('input');
-    const maxInput = document.createElement('input');
-
-    minInput.type = 'number';
-    maxInput.type = 'number';
-    minInput.className = 'filter-input filter-range-input';
-    maxInput.className = 'filter-input filter-range-input';
-    minInput.placeholder = '下限';
-    maxInput.placeholder = '上限';
-
-    const active = findFilter(columnInfo.fieldName);
-
-    if (active && active.filterType === 'range') {
-      if (active.minValue && active.minValue.value !== null) {
-        minInput.value = String(active.minValue.value);
-      }
-
-      if (active.maxValue && active.maxValue.value !== null) {
-        maxInput.value = String(active.maxValue.value);
-      }
-    }
-
-    const apply = () => {
-      runFilterAction(() => {
-        const min = toNumberOrNull(minInput.value);
-        const max = toNumberOrNull(maxInput.value);
-
-        if (min !== null && max !== null && min > max) {
-          throw new Error('数値フィルターは下限を上限以下にしてください。');
-        }
-
-        return applyRangeFilter(columnInfo.fieldName, min, max);
-      });
-    };
-
-    [minInput, maxInput].forEach((input) => {
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          apply();
-        }
-      });
-    });
-
-    wrapper.appendChild(minInput);
-    wrapper.appendChild(maxInput);
-    wrapper.appendChild(
-      createButton('適用', 'filter-button', apply)
-    );
-    wrapper.appendChild(
-      createButton('×', 'filter-clear', () => {
-        minInput.value = '';
-        maxInput.value = '';
-        runFilterAction(() =>
-          clearFieldFilter(columnInfo.fieldName)
-        );
-      })
-    );
-
-    return wrapper;
-  }
-
-  function createDateFilter(columnInfo) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-control filter-range-control';
-
-    const minInput = document.createElement('input');
-    const maxInput = document.createElement('input');
-
-    minInput.type = 'date';
-    maxInput.type = 'date';
-    minInput.className = 'filter-input filter-date-input';
-    maxInput.className = 'filter-input filter-date-input';
-
-    const active = findFilter(columnInfo.fieldName);
-
-    if (active && active.filterType === 'range') {
-      if (active.minValue) {
-        minInput.value = toDateInputValue(active.minValue.value);
-      }
-
-      if (active.maxValue) {
-        maxInput.value = toDateInputValue(active.maxValue.value);
-      }
-    }
-
-    const apply = () => {
-      runFilterAction(() => {
-        const min = parseDateInput(minInput.value, false);
-        const max = parseDateInput(maxInput.value, true);
-
-        if (min && max && min.getTime() > max.getTime()) {
-          throw new Error('日付フィルターは開始日を終了日以前にしてください。');
-        }
-
-        return applyRangeFilter(columnInfo.fieldName, min, max);
-      });
-    };
-
-    [minInput, maxInput].forEach((input) => {
-      input.addEventListener('change', apply);
-    });
-
-    wrapper.appendChild(minInput);
-    wrapper.appendChild(maxInput);
-    wrapper.appendChild(
-      createButton('×', 'filter-clear', () => {
-        minInput.value = '';
-        maxInput.value = '';
-        runFilterAction(() =>
-          clearFieldFilter(columnInfo.fieldName)
-        );
-      })
-    );
-
-    return wrapper;
-  }
-
-  function createBooleanFilter(columnInfo) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'filter-control filter-boolean-control';
-
-    const select = document.createElement('select');
-    select.className = 'filter-input';
-
-    [
-      ['', 'すべて'],
-      ['true', 'True'],
-      ['false', 'False']
-    ].forEach(([value, label]) => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      select.appendChild(option);
-    });
-
-    const active = findFilter(columnInfo.fieldName);
-
-    if (
-      active &&
-      active.filterType === 'categorical' &&
-      active.appliedValues.length === 1
-    ) {
-      const value = active.appliedValues[0].value;
-
-      if (value === true || String(value).toLowerCase() === 'true') {
-        select.value = 'true';
-      } else if (
-        value === false ||
-        String(value).toLowerCase() === 'false'
-      ) {
-        select.value = 'false';
-      }
-    }
-
-    select.addEventListener('change', () => {
-      runFilterAction(() => {
-        if (select.value === '') {
-          return clearFieldFilter(columnInfo.fieldName);
-        }
-
-        return applyCategoricalFilter(
-          columnInfo.fieldName,
-          [select.value === 'true']
-        );
-      });
-    });
-
-    wrapper.appendChild(select);
-
-    return wrapper;
-  }
-
-  function createFilterControl(columnInfo) {
-    if (columnInfo.kind === 'number') {
-      return createNumberFilter(columnInfo);
-    }
-
-    if (columnInfo.kind === 'date') {
-      return createDateFilter(columnInfo);
-    }
-
-    if (columnInfo.kind === 'boolean') {
-      return createBooleanFilter(columnInfo);
-    }
-
-    return createTextFilter(columnInfo);
   }
 
   function renderTable(dataTable) {
@@ -985,36 +209,33 @@
     }
 
     const headerRow = document.createElement('tr');
-    headerRow.className = 'column-header-row';
 
-    displayColumns.forEach((columnInfo) => {
+    displayColumns.forEach(({ column, fieldName }) => {
       const th = document.createElement('th');
-      th.textContent = columnInfo.fieldName;
+      th.textContent =
+        column.fieldName ||
+        column.caption ||
+        column.name ||
+        fieldName;
       headerRow.appendChild(th);
     });
 
     thead.appendChild(headerRow);
 
-    const filterRow = document.createElement('tr');
-    filterRow.className = 'filter-row';
-
-    displayColumns.forEach((columnInfo) => {
-      const th = document.createElement('th');
-      th.appendChild(createFilterControl(columnInfo));
-      filterRow.appendChild(th);
-    });
-
-    thead.appendChild(filterRow);
+    const alignmentClasses = displayColumns.map(
+      ({ column, cellIndex }) =>
+        alignmentClass(column, dataTable, cellIndex)
+    );
 
     const fragment = document.createDocumentFragment();
 
     dataTable.data.forEach((row) => {
       const tr = document.createElement('tr');
 
-      displayColumns.forEach((columnInfo) => {
+      displayColumns.forEach(({ cellIndex }, displayIndex) => {
         const td = document.createElement('td');
-        td.classList.add(alignmentClass(columnInfo.kind));
-        td.textContent = displayValue(row[columnInfo.cellIndex]);
+        td.classList.add(alignmentClasses[displayIndex]);
+        td.textContent = displayValue(row[cellIndex]);
         tr.appendChild(td);
       });
 
@@ -1033,15 +254,10 @@
   }
 
   function updatePager() {
-    const filterText =
-      filterState.length > 0
-        ? ' / フィルター ' + filterState.length
-        : '';
-
     if (!reader) {
       $('status').textContent =
         mappedFields.length > 0
-          ? mappedFields.length + ' 列' + filterText
+          ? mappedFields.length + ' 列'
           : '-';
       $('page').textContent = '-';
       $('prev').disabled = true;
@@ -1055,8 +271,7 @@
       mappedFields.length +
       ' 列 / ' +
       PAGE_SIZE +
-      ' 行/ページ' +
-      filterText;
+      ' 行/ページ';
 
     $('page').textContent =
       reader.pageCount === 0
@@ -1109,7 +324,6 @@
     }
 
     pageIndex = nextPage;
-    lastDataTable = dataTable;
     const renderedColumnCount = renderTable(dataTable);
     updatePager();
 
@@ -1129,14 +343,9 @@
     const currentGeneration = ++generation;
 
     setBusy(true);
-
-    const isFilterRefresh =
-      reason === 'filter-changed' ||
-      reason === 'extension-filter-changed';
-
     setMessage(
-      isFilterRefresh
-        ? 'フィルター変更を反映しています...'
+      reason === 'filter-changed'
+        ? 'Tableauフィルター変更を反映しています...'
         : reason === 'summary-data-changed'
           ? 'データ変更を反映しています...'
           : 'データを読み込んでいます...',
@@ -1148,10 +357,6 @@
     if (currentGeneration !== generation) return;
 
     mappedFields = await getMappedFields();
-
-    if (currentGeneration !== generation) return;
-
-    await refreshFilterState();
 
     if (currentGeneration !== generation) return;
 
@@ -1211,8 +416,6 @@
       );
     }
 
-    loadDropdownCandidateCache();
-
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
       function () {
@@ -1270,13 +473,4 @@
   });
 
   initialize().catch(showError);
-
-  window.tabsdkDataViewerFilters = Object.freeze({
-    getFilters: getWorksheetFilters,
-    applyCategoricalFilter,
-    applyRangeFilter,
-    clearFilter: clearFieldFilter,
-    refreshDropdownCandidates,
-    getDropdownCacheEntry
-  });
 })();
