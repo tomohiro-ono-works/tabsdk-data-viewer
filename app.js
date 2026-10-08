@@ -69,7 +69,7 @@
       .toLowerCase();
   }
 
-  function alignmentClass(column, dataTable, cellIndex) {
+  function classifyColumn(column, dataTable, cellIndex) {
     const dataType = normalizeDataType(column);
 
     if (
@@ -80,28 +80,34 @@
       dataType.includes('number') ||
       dataType.includes('numeric')
     ) {
-      return 'cell-number';
+      return 'number';
     }
 
     if (dataType.includes('date') || dataType.includes('time')) {
-      return 'cell-date';
+      return 'date';
     }
 
     if (dataType.includes('bool')) {
-      return 'cell-boolean';
+      return 'boolean';
     }
 
     for (const row of dataTable.data) {
       const value = rawValue(row[cellIndex]);
 
       if (value === null || value === undefined) continue;
-      if (typeof value === 'number') return 'cell-number';
-      if (typeof value === 'boolean') return 'cell-boolean';
-      if (value instanceof Date) return 'cell-date';
-
+      if (typeof value === 'number') return 'number';
+      if (typeof value === 'boolean') return 'boolean';
+      if (value instanceof Date) return 'date';
       break;
     }
 
+    return 'text';
+  }
+
+  function alignmentClass(kind) {
+    if (kind === 'number') return 'cell-number';
+    if (kind === 'date') return 'cell-date';
+    if (kind === 'boolean') return 'cell-boolean';
     return 'cell-text';
   }
 
@@ -180,78 +186,53 @@
         return;
       }
 
+      const column = dataTable.columns[index];
+      const cellIndex =
+        column.index !== undefined && column.index !== null
+          ? column.index
+          : index;
+
       usedIndexes.add(index);
       resolved.push({
-        column: dataTable.columns[index],
-        cellIndex:
-          dataTable.columns[index].index !== undefined &&
-          dataTable.columns[index].index !== null
-            ? dataTable.columns[index].index
-            : index,
-        fieldName: mappedField.fieldName
+        column,
+        cellIndex,
+        fieldName:
+          column.fieldName ||
+          column.caption ||
+          column.name ||
+          mappedField.fieldName,
+        kind: classifyColumn(column, dataTable, cellIndex)
       });
     });
 
     return resolved;
   }
 
-  function renderTable(dataTable) {
-    const table = $('dataTable');
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
-
-    thead.innerHTML = '';
-    tbody.innerHTML = '';
-
-    const displayColumns = resolveDisplayColumns(dataTable);
-
-    if (!displayColumns.length) {
-      return 0;
+  function normalizeDataValue(value) {
+    if (!value) {
+      return {
+        value: null,
+        formattedValue: ''
+      };
     }
 
-    const headerRow = document.createElement('tr');
+    let native = null;
 
-    displayColumns.forEach(({ column, fieldName }) => {
-      const th = document.createElement('th');
-      th.textContent =
-        column.fieldName ||
-        column.caption ||
-        column.name ||
-        fieldName;
-      headerRow.appendChild(th);
-    });
+    if (value.nativeValue !== undefined) {
+      native = value.nativeValue;
+    } else if (value.value !== undefined) {
+      native = value.value;
+    }
 
-    thead.appendChild(headerRow);
-
-    const alignmentClasses = displayColumns.map(
-      ({ column, cellIndex }) =>
-        alignmentClass(column, dataTable, cellIndex)
-    );
-
-    const fragment = document.createDocumentFragment();
-
-    dataTable.data.forEach((row) => {
-      const tr = document.createElement('tr');
-
-      displayColumns.forEach(({ cellIndex }, displayIndex) => {
-        const td = document.createElement('td');
-        td.classList.add(alignmentClasses[displayIndex]);
-        td.textContent = displayValue(row[cellIndex]);
-        tr.appendChild(td);
-      });
-
-      fragment.appendChild(tr);
-    });
-
-    tbody.appendChild(fragment);
-
-    return displayColumns.length;
-  }
-
-  function renderEmptyTable() {
-    const table = $('dataTable');
-    table.querySelector('thead').innerHTML = '';
-    table.querySelector('tbody').innerHTML = '';
+    return {
+      value: native,
+      formattedValue:
+        value.formattedValue !== undefined && value.formattedValue !== null
+          ? String(value.formattedValue)
+          : native === null || native === undefined
+            ? ''
+            : String(native)
+    };
   }
 
   function normalizeFilter(filter) {
@@ -262,42 +243,16 @@
     };
 
     if (Array.isArray(filter.appliedValues)) {
-      normalized.appliedValues = filter.appliedValues.map((value) => ({
-        value:
-          value && value.value !== undefined
-            ? value.value
-            : null,
-        formattedValue:
-          value && value.formattedValue !== undefined
-            ? value.formattedValue
-            : ''
-      }));
+      normalized.appliedValues =
+        filter.appliedValues.map(normalizeDataValue);
     }
 
     if (filter.minValue) {
-      normalized.minValue = {
-        value:
-          filter.minValue.value !== undefined
-            ? filter.minValue.value
-            : null,
-        formattedValue:
-          filter.minValue.formattedValue !== undefined
-            ? filter.minValue.formattedValue
-            : ''
-      };
+      normalized.minValue = normalizeDataValue(filter.minValue);
     }
 
     if (filter.maxValue) {
-      normalized.maxValue = {
-        value:
-          filter.maxValue.value !== undefined
-            ? filter.maxValue.value
-            : null,
-        formattedValue:
-          filter.maxValue.formattedValue !== undefined
-            ? filter.maxValue.formattedValue
-            : ''
-      };
+      normalized.maxValue = normalizeDataValue(filter.maxValue);
     }
 
     return normalized;
@@ -315,6 +270,10 @@
       console.warn('getFiltersAsync failed', error);
       filterState = [];
     }
+  }
+
+  function findFilter(fieldName) {
+    return filterState.find((filter) => filter.fieldName === fieldName);
   }
 
   async function applyCategoricalFilter(fieldName, values) {
@@ -340,6 +299,30 @@
     scheduleRefresh('extension-filter-changed');
   }
 
+  async function applyRangeFilter(fieldName, minValue, maxValue) {
+    if (!fieldName) {
+      throw new Error('フィルター対象フィールドが指定されていません。');
+    }
+
+    const options = {};
+
+    if (minValue !== null && minValue !== undefined) {
+      options.min = minValue;
+    }
+
+    if (maxValue !== null && maxValue !== undefined) {
+      options.max = maxValue;
+    }
+
+    if (!Object.keys(options).length) {
+      await clearFieldFilter(fieldName);
+      return;
+    }
+
+    await worksheet.applyRangeFilterAsync(fieldName, options);
+    scheduleRefresh('extension-filter-changed');
+  }
+
   async function clearFieldFilter(fieldName) {
     if (!fieldName) {
       throw new Error('フィルター対象フィールドが指定されていません。');
@@ -347,6 +330,386 @@
 
     await worksheet.clearFilterAsync(fieldName);
     scheduleRefresh('extension-filter-changed');
+  }
+
+  function toNumberOrNull(value) {
+    if (value === '') return null;
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+      throw new Error('数値フィルターに正しい数値を入力してください。');
+    }
+
+    return number;
+  }
+
+  function parseDateInput(value, endOfDay) {
+    if (!value) return null;
+
+    const parts = value.split('-').map(Number);
+
+    if (
+      parts.length !== 3 ||
+      !Number.isInteger(parts[0]) ||
+      !Number.isInteger(parts[1]) ||
+      !Number.isInteger(parts[2])
+    ) {
+      throw new Error('日付フィルターに正しい日付を入力してください。');
+    }
+
+    return new Date(
+      Date.UTC(
+        parts[0],
+        parts[1] - 1,
+        parts[2],
+        endOfDay ? 23 : 0,
+        endOfDay ? 59 : 0,
+        endOfDay ? 59 : 0,
+        endOfDay ? 999 : 0
+      )
+    );
+  }
+
+  function toDateInputValue(value) {
+    if (value === null || value === undefined || value === '') {
+      return '';
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    return date.toISOString().slice(0, 10);
+  }
+
+  function createButton(text, className, handler) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = text;
+    button.className = className;
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function runFilterAction(action) {
+    setBusy(true);
+    setMessage('フィルターを適用しています...', 'loading');
+
+    Promise.resolve()
+      .then(action)
+      .catch(showError);
+  }
+
+  function createTextFilter(columnInfo) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-control filter-text-control';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'filter-input';
+    input.placeholder = '完全一致';
+
+    const active = findFilter(columnInfo.fieldName);
+
+    if (
+      active &&
+      active.filterType === 'categorical' &&
+      active.appliedValues.length === 1
+    ) {
+      input.value =
+        active.appliedValues[0].value === null ||
+        active.appliedValues[0].value === undefined
+          ? ''
+          : String(active.appliedValues[0].value);
+    }
+
+    const apply = () => {
+      const value = input.value.trim();
+
+      runFilterAction(() =>
+        value
+          ? applyCategoricalFilter(columnInfo.fieldName, [value])
+          : clearFieldFilter(columnInfo.fieldName)
+      );
+    };
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        apply();
+      }
+    });
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(
+      createButton('適用', 'filter-button', apply)
+    );
+    wrapper.appendChild(
+      createButton('×', 'filter-clear', () => {
+        input.value = '';
+        runFilterAction(() =>
+          clearFieldFilter(columnInfo.fieldName)
+        );
+      })
+    );
+
+    return wrapper;
+  }
+
+  function createNumberFilter(columnInfo) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-control filter-range-control';
+
+    const minInput = document.createElement('input');
+    const maxInput = document.createElement('input');
+
+    minInput.type = 'number';
+    maxInput.type = 'number';
+    minInput.className = 'filter-input filter-range-input';
+    maxInput.className = 'filter-input filter-range-input';
+    minInput.placeholder = '下限';
+    maxInput.placeholder = '上限';
+
+    const active = findFilter(columnInfo.fieldName);
+
+    if (active && active.filterType === 'range') {
+      if (active.minValue && active.minValue.value !== null) {
+        minInput.value = String(active.minValue.value);
+      }
+
+      if (active.maxValue && active.maxValue.value !== null) {
+        maxInput.value = String(active.maxValue.value);
+      }
+    }
+
+    const apply = () => {
+      runFilterAction(() => {
+        const min = toNumberOrNull(minInput.value);
+        const max = toNumberOrNull(maxInput.value);
+
+        if (min !== null && max !== null && min > max) {
+          throw new Error('数値フィルターは下限を上限以下にしてください。');
+        }
+
+        return applyRangeFilter(columnInfo.fieldName, min, max);
+      });
+    };
+
+    [minInput, maxInput].forEach((input) => {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          apply();
+        }
+      });
+    });
+
+    wrapper.appendChild(minInput);
+    wrapper.appendChild(maxInput);
+    wrapper.appendChild(
+      createButton('適用', 'filter-button', apply)
+    );
+    wrapper.appendChild(
+      createButton('×', 'filter-clear', () => {
+        minInput.value = '';
+        maxInput.value = '';
+        runFilterAction(() =>
+          clearFieldFilter(columnInfo.fieldName)
+        );
+      })
+    );
+
+    return wrapper;
+  }
+
+  function createDateFilter(columnInfo) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-control filter-range-control';
+
+    const minInput = document.createElement('input');
+    const maxInput = document.createElement('input');
+
+    minInput.type = 'date';
+    maxInput.type = 'date';
+    minInput.className = 'filter-input filter-date-input';
+    maxInput.className = 'filter-input filter-date-input';
+
+    const active = findFilter(columnInfo.fieldName);
+
+    if (active && active.filterType === 'range') {
+      if (active.minValue) {
+        minInput.value = toDateInputValue(active.minValue.value);
+      }
+
+      if (active.maxValue) {
+        maxInput.value = toDateInputValue(active.maxValue.value);
+      }
+    }
+
+    const apply = () => {
+      runFilterAction(() => {
+        const min = parseDateInput(minInput.value, false);
+        const max = parseDateInput(maxInput.value, true);
+
+        if (min && max && min.getTime() > max.getTime()) {
+          throw new Error('日付フィルターは開始日を終了日以前にしてください。');
+        }
+
+        return applyRangeFilter(columnInfo.fieldName, min, max);
+      });
+    };
+
+    [minInput, maxInput].forEach((input) => {
+      input.addEventListener('change', apply);
+    });
+
+    wrapper.appendChild(minInput);
+    wrapper.appendChild(maxInput);
+    wrapper.appendChild(
+      createButton('×', 'filter-clear', () => {
+        minInput.value = '';
+        maxInput.value = '';
+        runFilterAction(() =>
+          clearFieldFilter(columnInfo.fieldName)
+        );
+      })
+    );
+
+    return wrapper;
+  }
+
+  function createBooleanFilter(columnInfo) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'filter-control filter-boolean-control';
+
+    const select = document.createElement('select');
+    select.className = 'filter-input';
+
+    [
+      ['', 'すべて'],
+      ['true', 'True'],
+      ['false', 'False']
+    ].forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+
+    const active = findFilter(columnInfo.fieldName);
+
+    if (
+      active &&
+      active.filterType === 'categorical' &&
+      active.appliedValues.length === 1
+    ) {
+      const value = active.appliedValues[0].value;
+
+      if (value === true || String(value).toLowerCase() === 'true') {
+        select.value = 'true';
+      } else if (
+        value === false ||
+        String(value).toLowerCase() === 'false'
+      ) {
+        select.value = 'false';
+      }
+    }
+
+    select.addEventListener('change', () => {
+      runFilterAction(() => {
+        if (select.value === '') {
+          return clearFieldFilter(columnInfo.fieldName);
+        }
+
+        return applyCategoricalFilter(
+          columnInfo.fieldName,
+          [select.value === 'true']
+        );
+      });
+    });
+
+    wrapper.appendChild(select);
+
+    return wrapper;
+  }
+
+  function createFilterControl(columnInfo) {
+    if (columnInfo.kind === 'number') {
+      return createNumberFilter(columnInfo);
+    }
+
+    if (columnInfo.kind === 'date') {
+      return createDateFilter(columnInfo);
+    }
+
+    if (columnInfo.kind === 'boolean') {
+      return createBooleanFilter(columnInfo);
+    }
+
+    return createTextFilter(columnInfo);
+  }
+
+  function renderTable(dataTable) {
+    const table = $('dataTable');
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+
+    const displayColumns = resolveDisplayColumns(dataTable);
+
+    if (!displayColumns.length) {
+      return 0;
+    }
+
+    const headerRow = document.createElement('tr');
+    headerRow.className = 'column-header-row';
+
+    displayColumns.forEach((columnInfo) => {
+      const th = document.createElement('th');
+      th.textContent = columnInfo.fieldName;
+      headerRow.appendChild(th);
+    });
+
+    thead.appendChild(headerRow);
+
+    const filterRow = document.createElement('tr');
+    filterRow.className = 'filter-row';
+
+    displayColumns.forEach((columnInfo) => {
+      const th = document.createElement('th');
+      th.appendChild(createFilterControl(columnInfo));
+      filterRow.appendChild(th);
+    });
+
+    thead.appendChild(filterRow);
+
+    const fragment = document.createDocumentFragment();
+
+    dataTable.data.forEach((row) => {
+      const tr = document.createElement('tr');
+
+      displayColumns.forEach((columnInfo) => {
+        const td = document.createElement('td');
+        td.classList.add(alignmentClass(columnInfo.kind));
+        td.textContent = displayValue(row[columnInfo.cellIndex]);
+        tr.appendChild(td);
+      });
+
+      fragment.appendChild(tr);
+    });
+
+    tbody.appendChild(fragment);
+
+    return displayColumns.length;
+  }
+
+  function renderEmptyTable() {
+    const table = $('dataTable');
+    table.querySelector('thead').innerHTML = '';
+    table.querySelector('tbody').innerHTML = '';
   }
 
   function updatePager() {
@@ -585,10 +948,10 @@
 
   initialize().catch(showError);
 
-  // Task 5 will connect the filter UI to these shared functions.
   window.tabsdkDataViewerFilters = Object.freeze({
     getFilters: getWorksheetFilters,
     applyCategoricalFilter,
+    applyRangeFilter,
     clearFilter: clearFieldFilter
   });
 })();

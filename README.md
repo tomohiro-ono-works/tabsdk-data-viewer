@@ -33,10 +33,19 @@ Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューア�
 - `SummaryDataChanged` と `FilterChanged` の再取得をデバウンス
 - 現在のWorksheetフィルター状態を取得
 - カテゴリフィルター共通関数
-  - `applyFilterAsync(..., FilterUpdateType.Replace)`
-  - `clearFilterAsync()`
 - 現在のフィルター数をステータス表示
-- タスク5用に共通フィルターAPIを用意
+
+### タスク5: Extension内フィルターUI
+- 各列ヘッダー下にフィルター行を表示
+- 文字列: 完全一致入力
+- 数値: 下限 / 上限
+- 日付: 開始日 / 終了日
+- Boolean: True / False / すべて
+- 各条件の解除
+- 数値・日付範囲は `applyRangeFilterAsync()`
+- 文字列・Booleanは `applyFilterAsync()`
+- フィルター適用後はReaderを再生成して1ページ目へ戻る
+- 文字列の候補プルダウンと候補値キャッシュはタスク6で実装
 
 ## 目標構成
 
@@ -56,8 +65,6 @@ BigQuery / CSV / Excel / DB
 ```
 
 ## 次の予定
-
-- Extension内フィルターUI
 - プルダウン候補値キャッシュ
 - 列幅・列順・固定列設定
 - 通常 / 棒グラフ / ヒートマップ
