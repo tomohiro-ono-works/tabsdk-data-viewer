@@ -4,6 +4,11 @@
   const PAGE_SIZE = 200;
   const AUTO_REFRESH_DELAY_MS = 150;
   const ENCODING_ORDER = ['rows', 'label'];
+  const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
+  const DEFAULT_COLUMN_WIDTH = 160;
+  const MIN_COLUMN_WIDTH = 80;
+  const MAX_COLUMN_WIDTH = 420;
+  const COLUMN_HORIZONTAL_PADDING = 24;
 
   let worksheet = null;
   let reader = null;
@@ -14,6 +19,9 @@
   let pendingRefreshReason = 'initial';
   let generation = 0;
   let mappedFields = [];
+  let manualColumnWidths = {};
+  let autoColumnWidths = {};
+  let textMeasureContext = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -194,11 +202,182 @@
     return resolved;
   }
 
+  function clampColumnWidth(width) {
+    return Math.max(
+      MIN_COLUMN_WIDTH,
+      Math.min(MAX_COLUMN_WIDTH, Math.round(width))
+    );
+  }
+
+  function getTextMeasureContext() {
+    if (textMeasureContext) return textMeasureContext;
+
+    const canvas = document.createElement('canvas');
+    textMeasureContext = canvas.getContext('2d');
+
+    if (textMeasureContext) {
+      const bodyStyle = window.getComputedStyle(document.body);
+      textMeasureContext.font =
+        bodyStyle.font || '13px Arial, "Noto Sans JP", sans-serif';
+    }
+
+    return textMeasureContext;
+  }
+
+  function measureTextWidth(text) {
+    const value = text === null || text === undefined ? '' : String(text);
+    const context = getTextMeasureContext();
+
+    if (!context) {
+      return value.length * 8;
+    }
+
+    return context.measureText(value).width;
+  }
+
+  function getAutoColumnWidth(columnInfo, dataTable) {
+    let required = measureTextWidth(columnInfo.fieldName);
+
+    for (const row of dataTable.data) {
+      required = Math.max(
+        required,
+        measureTextWidth(displayValue(row[columnInfo.cellIndex]))
+      );
+
+      if (required + COLUMN_HORIZONTAL_PADDING >= MAX_COLUMN_WIDTH) {
+        return MAX_COLUMN_WIDTH;
+      }
+    }
+
+    return clampColumnWidth(
+      Math.max(DEFAULT_COLUMN_WIDTH, required + COLUMN_HORIZONTAL_PADDING)
+    );
+  }
+
+  function resolveColumnWidth(columnInfo, dataTable) {
+    const fieldName = columnInfo.fieldName;
+    const savedWidth = Number(manualColumnWidths[fieldName]);
+
+    if (Number.isFinite(savedWidth)) {
+      return clampColumnWidth(savedWidth);
+    }
+
+    const measuredWidth = getAutoColumnWidth(columnInfo, dataTable);
+    const previousAutoWidth = Number(autoColumnWidths[fieldName]);
+    const width = Number.isFinite(previousAutoWidth)
+      ? Math.max(previousAutoWidth, measuredWidth)
+      : measuredWidth;
+
+    autoColumnWidths[fieldName] = clampColumnWidth(width);
+
+    return autoColumnWidths[fieldName];
+  }
+
+  function loadColumnWidths() {
+    const raw = tableau.extensions.settings.get(COLUMN_WIDTHS_KEY);
+
+    if (!raw) {
+      manualColumnWidths = {};
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      manualColumnWidths =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed
+          : {};
+    } catch (error) {
+      console.warn('Column width settings could not be parsed.', error);
+      manualColumnWidths = {};
+    }
+  }
+
+  async function saveColumnWidths() {
+    tableau.extensions.settings.set(
+      COLUMN_WIDTHS_KEY,
+      JSON.stringify(manualColumnWidths)
+    );
+
+    try {
+      await tableau.extensions.settings.saveAsync();
+    } catch (error) {
+      console.warn('Column width settings could not be saved.', error);
+    }
+  }
+
+  function applyColumnWidth(table, colElement, width) {
+    const nextWidth = clampColumnWidth(width);
+    colElement.style.width = nextWidth + 'px';
+
+    const cols = Array.from(table.querySelectorAll('colgroup col'));
+    const totalWidth = cols.reduce((sum, col) => {
+      const current = parseFloat(col.style.width);
+      return sum + (Number.isFinite(current) ? current : DEFAULT_COLUMN_WIDTH);
+    }, 0);
+
+    table.style.width = totalWidth + 'px';
+    table.style.minWidth = totalWidth + 'px';
+
+    return nextWidth;
+  }
+
+  function attachColumnResizer(handle, table, colElement, fieldName) {
+    handle.addEventListener('pointerdown', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startWidth =
+        parseFloat(colElement.style.width) || DEFAULT_COLUMN_WIDTH;
+
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch (_) {}
+
+      document.body.classList.add('is-column-resizing');
+
+      const onMove = function (moveEvent) {
+        const width = startWidth + (moveEvent.clientX - startX);
+        applyColumnWidth(table, colElement, width);
+      };
+
+      const onEnd = function (endEvent) {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+        document.body.classList.remove('is-column-resizing');
+
+        try {
+          handle.releasePointerCapture(endEvent.pointerId);
+        } catch (_) {}
+
+        const finalWidth = clampColumnWidth(
+          parseFloat(colElement.style.width) || startWidth
+        );
+
+        manualColumnWidths[fieldName] = finalWidth;
+        saveColumnWidths();
+      };
+
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    });
+  }
+
   function renderTable(dataTable) {
     const table = $('dataTable');
     const thead = table.querySelector('thead');
     const tbody = table.querySelector('tbody');
+    let colgroup = table.querySelector('colgroup');
 
+    if (!colgroup) {
+      colgroup = document.createElement('colgroup');
+      table.insertBefore(colgroup, thead);
+    }
+
+    colgroup.innerHTML = '';
     thead.innerHTML = '';
     tbody.innerHTML = '';
 
@@ -209,16 +388,45 @@
     }
 
     const headerRow = document.createElement('tr');
+    let totalWidth = 0;
 
-    displayColumns.forEach(({ column, fieldName }) => {
+    displayColumns.forEach((columnInfo) => {
+      const width = resolveColumnWidth(columnInfo, dataTable);
+      const col = document.createElement('col');
+      col.dataset.fieldName = columnInfo.fieldName;
+      col.style.width = width + 'px';
+      colgroup.appendChild(col);
+      totalWidth += width;
+
       const th = document.createElement('th');
-      th.textContent =
-        column.fieldName ||
-        column.caption ||
-        column.name ||
-        fieldName;
+      const label = document.createElement('span');
+      label.className = 'column-header-label';
+      label.textContent =
+        columnInfo.column.fieldName ||
+        columnInfo.column.caption ||
+        columnInfo.column.name ||
+        columnInfo.fieldName;
+
+      const resizer = document.createElement('span');
+      resizer.className = 'column-resizer';
+      resizer.setAttribute('role', 'separator');
+      resizer.setAttribute('aria-orientation', 'vertical');
+      resizer.title = 'ドラッグして列幅を変更';
+
+      attachColumnResizer(
+        resizer,
+        table,
+        col,
+        columnInfo.fieldName
+      );
+
+      th.appendChild(label);
+      th.appendChild(resizer);
       headerRow.appendChild(th);
     });
+
+    table.style.width = totalWidth + 'px';
+    table.style.minWidth = totalWidth + 'px';
 
     thead.appendChild(headerRow);
 
@@ -249,8 +457,16 @@
 
   function renderEmptyTable() {
     const table = $('dataTable');
+    const colgroup = table.querySelector('colgroup');
+
+    if (colgroup) {
+      colgroup.innerHTML = '';
+    }
+
     table.querySelector('thead').innerHTML = '';
     table.querySelector('tbody').innerHTML = '';
+    table.style.width = '';
+    table.style.minWidth = '';
   }
 
   function updatePager() {
@@ -415,6 +631,8 @@
         'Worksheet コンテキストを取得できません。Viz Extension として読み込んでください。'
       );
     }
+
+    loadColumnWidths();
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,

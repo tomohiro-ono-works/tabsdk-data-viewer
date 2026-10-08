@@ -33,14 +33,28 @@ Tableau Viz Extension（Worksheet Extension）用の大容量帳票ビューア�
 - `SummaryDataChanged` と `FilterChanged` の再取得をデバウンス
 - Extension内には独自フィルターUIを持たない
 
+### タスク5-6: 独自フィルターは廃止
+- Extension内フィルターUIは削除
+- Distinct候補取得・候補キャッシュも削除
+- フィルター操作はTableau標準機能に統一
+
+### タスク7-1: 列幅
+- 初期幅: 160px
+- 現在表示中の200行とヘッダーから必要幅を計算
+- 内容が収まらない場合は自動拡張
+- 自動拡張・手動変更とも最大420px
+- 最小80px
+- ページ移動時は自動幅を縮めず、必要なら追加で拡張
+- 列境界をマウス / タッチでドラッグして手動変更
+- 手動変更後は自動拡張より優先
+- 手動幅は `tableau.extensions.settings` に保存し、Workbook再表示時に復元
+
 ## 廃止した機能
 - Extension内の文字列 / 数値 / 日付 / Booleanフィルター
 - `applyFilterAsync()` / `applyRangeFilterAsync()` による独自フィルター操作
 - Distinct候補値取得
 - プルダウン候補キャッシュ
 - フィルター用Workbook設定
-
-フィルター操作はTableau標準機能に統一します。
 
 ## 目標構成
 
@@ -62,7 +76,8 @@ BigQuery / CSV / Excel / DB
 ```
 
 ## 次の予定
-- 列幅・列順・固定列設定
+- 列順設定
+- 固定列設定
 - 通常 / 棒グラフ / ヒートマップ
 - ソート
 - CSV / Clipboard / Excel エクスポート
