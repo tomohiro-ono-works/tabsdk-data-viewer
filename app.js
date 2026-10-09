@@ -12,6 +12,7 @@
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
   const COLUMN_HORIZONTAL_PADDING = 24;
+  const CLIPBOARD_WARNING_ROWS = 20000;
 
   let worksheet = null;
   let reader = null;
@@ -29,6 +30,7 @@
   let columnDisplayModes = {};
   let numericFieldNames = new Set();
   let textMeasureContext = null;
+  let exportInProgress = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -41,10 +43,21 @@
   }
 
   function setBusy(busy) {
-    $('refreshData').disabled = busy;
-    $('prev').disabled = busy || !reader || pageIndex <= 0;
+    $('refreshData').disabled = busy || exportInProgress;
+    $('exportCsv').disabled = busy || exportInProgress || !reader;
+    $('copyTsv').disabled = busy || exportInProgress || !reader;
+    $('prev').disabled =
+      busy || exportInProgress || !reader || pageIndex <= 0;
     $('next').disabled =
-      busy || !reader || pageIndex >= reader.pageCount - 1;
+      busy ||
+      exportInProgress ||
+      !reader ||
+      pageIndex >= reader.pageCount - 1;
+  }
+
+  function setExportBusy(busy) {
+    exportInProgress = busy;
+    setBusy(false);
   }
 
   function rawValue(cell) {
@@ -728,6 +741,230 @@
     return displayColumns.length;
   }
 
+
+  function escapeDelimitedValue(value, delimiter) {
+    const text =
+      value === null || value === undefined
+        ? ''
+        : String(value);
+
+    if (
+      text.includes('"') ||
+      text.includes('\n') ||
+      text.includes('\r') ||
+      text.includes(delimiter)
+    ) {
+      return '"' + text.replace(/"/g, '""') + '"';
+    }
+
+    return text;
+  }
+
+  function createExportFileName(extension) {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+
+    return (
+      'tabsdk-data-viewer-' +
+      now.getFullYear() +
+      pad(now.getMonth() + 1) +
+      pad(now.getDate()) +
+      '-' +
+      pad(now.getHours()) +
+      pad(now.getMinutes()) +
+      pad(now.getSeconds()) +
+      '.' +
+      extension
+    );
+  }
+
+  function downloadBlob(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  async function buildDelimitedExport(delimiter, includeBom) {
+    const activeReader = reader;
+    const expectedGeneration = generation;
+
+    if (!activeReader) {
+      throw new Error('エクスポート対象のReaderがありません。');
+    }
+
+    const parts = [];
+    let headerWritten = false;
+    let exportedRows = 0;
+
+    if (includeBom) {
+      parts.push('\uFEFF');
+    }
+
+    for (
+      let exportPage = 0;
+      exportPage < activeReader.pageCount;
+      exportPage++
+    ) {
+      if (
+        activeReader !== reader ||
+        expectedGeneration !== generation
+      ) {
+        throw new Error(
+          'エクスポート中にデータが更新されました。再度実行してください。'
+        );
+      }
+
+      setMessage(
+        'エクスポート中... ' +
+          (exportPage + 1) +
+          ' / ' +
+          activeReader.pageCount +
+          ' ページ',
+        'loading'
+      );
+
+      const dataTable = await activeReader.getPageAsync(exportPage);
+      const displayColumns = resolveDisplayColumns(dataTable);
+
+      if (!displayColumns.length) {
+        throw new Error('エクスポート対象の列を取得できません。');
+      }
+
+      const lines = [];
+
+      if (!headerWritten) {
+        lines.push(
+          displayColumns
+            .map((columnInfo) =>
+              escapeDelimitedValue(
+                columnInfo.column.fieldName ||
+                  columnInfo.column.caption ||
+                  columnInfo.column.name ||
+                  columnInfo.fieldName,
+                delimiter
+              )
+            )
+            .join(delimiter)
+        );
+        headerWritten = true;
+      }
+
+      dataTable.data.forEach((row) => {
+        lines.push(
+          displayColumns
+            .map((columnInfo) =>
+              escapeDelimitedValue(
+                displayValue(row[columnInfo.cellIndex]),
+                delimiter
+              )
+            )
+            .join(delimiter)
+        );
+      });
+
+      exportedRows += dataTable.data.length;
+      parts.push(lines.join('\r\n') + '\r\n');
+    }
+
+    return {
+      parts,
+      rowCount: exportedRows
+    };
+  }
+
+  async function exportCsv() {
+    if (exportInProgress) return;
+
+    setExportBusy(true);
+
+    try {
+      const result = await buildDelimitedExport(',', true);
+      const blob = new Blob(result.parts, {
+        type: 'text/csv;charset=utf-8'
+      });
+
+      downloadBlob(blob, createExportFileName('csv'));
+
+      setMessage(
+        result.rowCount.toLocaleString() +
+          ' 行をCSVに出力しました。'
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function writeClipboardText(text) {
+    if (
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === 'function'
+    ) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (error) {
+        console.warn(
+          'navigator.clipboard.writeText failed; using fallback.',
+          error
+        );
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const copied = document.execCommand('copy');
+    textarea.remove();
+
+    if (!copied) {
+      throw new Error('クリップボードへのコピーに失敗しました。');
+    }
+  }
+
+  async function copyTsv() {
+    if (exportInProgress) return;
+
+    if (
+      reader &&
+      reader.totalRowCount > CLIPBOARD_WARNING_ROWS &&
+      !window.confirm(
+        reader.totalRowCount.toLocaleString() +
+          ' 行あります。大量コピーはブラウザが不安定になる可能性があります。続行しますか？'
+      )
+    ) {
+      return;
+    }
+
+    setExportBusy(true);
+
+    try {
+      const result = await buildDelimitedExport('\t', false);
+      const text = result.parts.join('');
+
+      await writeClipboardText(text);
+
+      setMessage(
+        result.rowCount.toLocaleString() +
+          ' 行をクリップボードへコピーしました。'
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   function renderEmptyTable() {
     const table = $('dataTable');
     const colgroup = table.querySelector('colgroup');
@@ -1104,6 +1341,14 @@
 
   $('refreshData').addEventListener('click', function () {
     refreshData('manual').catch(showError);
+  });
+
+  $('exportCsv').addEventListener('click', function () {
+    exportCsv().catch(showError);
+  });
+
+  $('copyTsv').addEventListener('click', function () {
+    copyTsv().catch(showError);
   });
 
   $('openSettings').addEventListener('click', openSettings);

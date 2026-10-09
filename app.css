@@ -53,3 +53,5 @@ tbody tr:hover td.fixed-column{background:#e8f0fe}
 .cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
 tbody tr:hover td.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
 tbody tr:hover td.cell-bar{background:#e8f0fe}
+
+.toolbar .button{white-space:nowrap}

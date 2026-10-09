@@ -108,5 +108,19 @@ BigQuery / CSV / Excel / DB
 - DataTableReaderはTableau側で確定した並び順をそのままページング表示
 - フィルター変更・再読み込み後もTableau側の並び順を使用
 
+### タスク9-1: CSV / Clipboard エクスポート
+- 通常表示は200行ページングのまま維持
+- エクスポート時のみ現在のDataTableReaderを全ページ順次取得
+- Tableau標準フィルター適用後の全行を対象
+- Tableau側で確定した並び順を維持
+- Extensionの現在の列順を維持
+- 値は `formattedValue` を使用
+- CSVはUTF-8 BOM付き
+- ClipboardはExcel貼り付け向けTSV
+- 20,000行超のClipboardは警告を表示
+- エクスポート中はページ進捗を表示
+- エクスポート中にデータ更新を検知した場合は中断
+
 ## 次の予定
-- CSV / Clipboard / Excel エクスポート
+- Excel（.xlsx）エクスポート
+- 性能・異常系検証
