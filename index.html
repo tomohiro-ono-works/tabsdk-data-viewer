@@ -33,7 +33,11 @@
           <button id="closeSettings" class="button">閉じる</button>
         </div>
         <div class="settings-body">
-          <div class="settings-help">ドラッグして列順を変更します。</div>
+          <label class="settings-field">
+            <span>左から固定する列数</span>
+            <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
+          </label>
+          <div class="settings-help">0で固定なし。列順はドラッグして変更します。</div>
           <div id="columnOrderList" class="column-order-list"></div>
         </div>
         <div class="settings-footer">
