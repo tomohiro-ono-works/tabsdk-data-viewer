@@ -6,6 +6,7 @@
   const ENCODING_ORDER = ['rows', 'label'];
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
   const COLUMN_ORDER_KEY = 'columnOrderV1';
+  const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -23,6 +24,7 @@
   let manualColumnWidths = {};
   let autoColumnWidths = {};
   let savedColumnOrder = [];
+  let fixedColumnCount = 0;
   let textMeasureContext = null;
 
   const $ = (id) => document.getElementById(id);
@@ -314,6 +316,29 @@
     }
   }
 
+  function loadFixedColumnCount() {
+    const raw = tableau.extensions.settings.get(FIXED_COLUMN_COUNT_KEY);
+    const parsed = Number(raw);
+
+    fixedColumnCount =
+      Number.isInteger(parsed) && parsed >= 0
+        ? parsed
+        : 0;
+  }
+
+  async function saveFixedColumnCount() {
+    tableau.extensions.settings.set(
+      FIXED_COLUMN_COUNT_KEY,
+      String(fixedColumnCount)
+    );
+
+    try {
+      await tableau.extensions.settings.saveAsync();
+    } catch (error) {
+      console.warn('Fixed column settings could not be saved.', error);
+    }
+  }
+
   async function saveColumnOrder() {
     tableau.extensions.settings.set(
       COLUMN_ORDER_KEY,
@@ -362,6 +387,38 @@
     }
   }
 
+  function updateStickyOffsets(table) {
+    const cols = Array.from(table.querySelectorAll('colgroup col'));
+    const activeFixedCount = Math.min(fixedColumnCount, cols.length);
+    let left = 0;
+
+    cols.forEach((col, index) => {
+      const width = parseFloat(col.style.width);
+      const cells = table.querySelectorAll(
+        'thead tr > th:nth-child(' + (index + 1) +
+          '), tbody tr > td:nth-child(' + (index + 1) + ')'
+      );
+
+      cells.forEach((cell) => {
+        cell.classList.remove('fixed-column', 'fixed-column-boundary');
+        cell.style.left = '';
+      });
+
+      if (index < activeFixedCount) {
+        cells.forEach((cell) => {
+          cell.classList.add('fixed-column');
+          cell.style.left = left + 'px';
+
+          if (index === activeFixedCount - 1) {
+            cell.classList.add('fixed-column-boundary');
+          }
+        });
+      }
+
+      left += Number.isFinite(width) ? width : DEFAULT_COLUMN_WIDTH;
+    });
+  }
+
   function applyColumnWidth(table, colElement, width) {
     const nextWidth = clampColumnWidth(width);
     colElement.style.width = nextWidth + 'px';
@@ -374,6 +431,7 @@
 
     table.style.width = totalWidth + 'px';
     table.style.minWidth = totalWidth + 'px';
+    updateStickyOffsets(table);
 
     return nextWidth;
   }
@@ -507,6 +565,7 @@
     });
 
     tbody.appendChild(fragment);
+    updateStickyOffsets(table);
 
     return displayColumns.length;
   }
@@ -690,6 +749,7 @@
 
     loadColumnWidths();
     loadColumnOrder();
+    loadFixedColumnCount();
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
@@ -764,6 +824,13 @@
 
   function openSettings() {
     renderColumnOrderSettings();
+
+    const fixedInput = $('fixedColumnCount');
+    fixedInput.max = String(mappedFields.length);
+    fixedInput.value = String(
+      Math.min(fixedColumnCount, mappedFields.length)
+    );
+
     $('settingsPanel').hidden = false;
   }
 
@@ -781,7 +848,13 @@
       currentFields.includes(fieldName)
     );
 
+    const requestedFixedCount = Number($('fixedColumnCount').value);
+    fixedColumnCount = Number.isInteger(requestedFixedCount)
+      ? Math.max(0, Math.min(requestedFixedCount, currentFields.length))
+      : 0;
+
     await saveColumnOrder();
+    await saveFixedColumnCount();
     closeSettings();
     await refreshData('manual');
   }
