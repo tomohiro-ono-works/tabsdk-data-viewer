@@ -75,8 +75,15 @@ BigQuery / CSV / Excel / DB
  tabsdk-data-viewer
 ```
 
+### タスク7-2: 列順
+- 初期順はTableau側のフィールド順
+- 設定画面でドラッグして列順を変更
+- 変更した列順は `tableau.extensions.settings` に保存
+- Workbook再表示時に復元
+- 新しく追加されたフィールドは保存済み列の後ろにTableau順で追加
+- 「Tableau順に戻す」で保存順をリセット
+
 ## 次の予定
-- 列順設定
 - 固定列設定
 - 通常 / 棒グラフ / ヒートマップ
 - ソート

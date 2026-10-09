@@ -5,6 +5,7 @@
   const AUTO_REFRESH_DELAY_MS = 150;
   const ENCODING_ORDER = ['rows', 'label'];
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
+  const COLUMN_ORDER_KEY = 'columnOrderV1';
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -21,6 +22,7 @@
   let mappedFields = [];
   let manualColumnWidths = {};
   let autoColumnWidths = {};
+  let savedColumnOrder = [];
   let textMeasureContext = null;
 
   const $ = (id) => document.getElementById(id);
@@ -199,7 +201,7 @@
       });
     });
 
-    return resolved;
+    return sortDisplayColumns(resolved);
   }
 
   function clampColumnWidth(width) {
@@ -291,6 +293,60 @@
       console.warn('Column width settings could not be parsed.', error);
       manualColumnWidths = {};
     }
+  }
+
+  function loadColumnOrder() {
+    const raw = tableau.extensions.settings.get(COLUMN_ORDER_KEY);
+
+    if (!raw) {
+      savedColumnOrder = [];
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      savedColumnOrder = Array.isArray(parsed)
+        ? parsed.filter((value) => typeof value === 'string')
+        : [];
+    } catch (error) {
+      console.warn('Column order settings could not be parsed.', error);
+      savedColumnOrder = [];
+    }
+  }
+
+  async function saveColumnOrder() {
+    tableau.extensions.settings.set(
+      COLUMN_ORDER_KEY,
+      JSON.stringify(savedColumnOrder)
+    );
+
+    try {
+      await tableau.extensions.settings.saveAsync();
+    } catch (error) {
+      console.warn('Column order settings could not be saved.', error);
+    }
+  }
+
+  function sortDisplayColumns(displayColumns) {
+    if (!savedColumnOrder.length) return displayColumns;
+
+    const rank = new Map(
+      savedColumnOrder.map((fieldName, index) => [fieldName, index])
+    );
+
+    return displayColumns
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .sort((a, b) => {
+        const ar = rank.has(a.item.fieldName)
+          ? rank.get(a.item.fieldName)
+          : Number.MAX_SAFE_INTEGER;
+        const br = rank.has(b.item.fieldName)
+          ? rank.get(b.item.fieldName)
+          : Number.MAX_SAFE_INTEGER;
+
+        return ar === br ? a.originalIndex - b.originalIndex : ar - br;
+      })
+      .map(({ item }) => item);
   }
 
   async function saveColumnWidths() {
@@ -633,6 +689,7 @@
     }
 
     loadColumnWidths();
+    loadColumnOrder();
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
@@ -649,6 +706,89 @@
     );
 
     await refreshData('initial');
+  }
+
+  function renderColumnOrderSettings() {
+    const list = $('columnOrderList');
+    list.innerHTML = '';
+
+    const currentFields = mappedFields.map((field) => field.fieldName);
+    const ordered = savedColumnOrder
+      .filter((fieldName) => currentFields.includes(fieldName));
+
+    currentFields.forEach((fieldName) => {
+      if (!ordered.includes(fieldName)) ordered.push(fieldName);
+    });
+
+    ordered.forEach((fieldName) => {
+      const item = document.createElement('div');
+      item.className = 'column-order-item';
+      item.draggable = true;
+      item.dataset.fieldName = fieldName;
+      item.textContent = fieldName;
+
+      item.addEventListener('dragstart', (event) => {
+        event.dataTransfer.setData('text/plain', fieldName);
+        event.dataTransfer.effectAllowed = 'move';
+        item.classList.add('is-dragging');
+      });
+
+      item.addEventListener('dragend', () => {
+        item.classList.remove('is-dragging');
+      });
+
+      item.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      });
+
+      item.addEventListener('drop', (event) => {
+        event.preventDefault();
+        const sourceField = event.dataTransfer.getData('text/plain');
+        if (!sourceField || sourceField === fieldName) return;
+
+        const next = ordered.slice();
+        const from = next.indexOf(sourceField);
+        const to = next.indexOf(fieldName);
+        if (from < 0 || to < 0) return;
+
+        next.splice(from, 1);
+        next.splice(to, 0, sourceField);
+        savedColumnOrder = next;
+        renderColumnOrderSettings();
+      });
+
+      list.appendChild(item);
+    });
+  }
+
+  function openSettings() {
+    renderColumnOrderSettings();
+    $('settingsPanel').hidden = false;
+  }
+
+  function closeSettings() {
+    $('settingsPanel').hidden = true;
+  }
+
+  async function applySettings() {
+    const currentFields = mappedFields.map((field) => field.fieldName);
+    const items = Array.from(
+      $('columnOrderList').querySelectorAll('.column-order-item')
+    ).map((item) => item.dataset.fieldName);
+
+    savedColumnOrder = items.filter((fieldName) =>
+      currentFields.includes(fieldName)
+    );
+
+    await saveColumnOrder();
+    closeSettings();
+    await refreshData('manual');
+  }
+
+  function resetColumnOrder() {
+    savedColumnOrder = [];
+    renderColumnOrderSettings();
   }
 
   function showError(error) {
@@ -671,6 +811,14 @@
   $('refreshData').addEventListener('click', function () {
     refreshData('manual').catch(showError);
   });
+
+  $('openSettings').addEventListener('click', openSettings);
+  $('closeSettings').addEventListener('click', closeSettings);
+  $('cancelSettings').addEventListener('click', closeSettings);
+  $('applySettings').addEventListener('click', function () {
+    applySettings().catch(showError);
+  });
+  $('resetColumnOrder').addEventListener('click', resetColumnOrder);
 
   window.addEventListener('beforeunload', function () {
     if (refreshTimer) {

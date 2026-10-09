@@ -25,3 +25,13 @@ body.is-column-resizing,body.is-column-resizing *{cursor:col-resize!important;us
 tbody tr:hover td{background:#e8f0fe}
 .footer{min-height:47px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 12px;color:var(--muted);background:var(--subtle);border-top:1px solid var(--border);font-size:12px}
 .pager{display:flex;align-items:center;gap:8px}#page{min-width:90px;text-align:center;color:var(--text)}
+.settings-panel{position:absolute;inset:0;z-index:20;background:rgba(255,255,255,.92);display:flex;align-items:flex-start;justify-content:flex-end;padding:52px 12px 12px}
+.settings-panel[hidden]{display:none}
+.settings-card{width:min(360px,calc(100% - 24px));max-height:calc(100% - 64px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);box-shadow:0 4px 16px rgba(60,64,67,.18)}
+.settings-header,.settings-footer{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border)}
+.settings-footer{border-top:1px solid var(--border);border-bottom:0}
+.settings-body{padding:10px;overflow:auto}
+.settings-help{margin-bottom:8px;color:var(--muted)}
+.column-order-list{display:flex;flex-direction:column;gap:6px}
+.column-order-item{padding:8px 10px;border:1px solid var(--border);background:#fff;cursor:grab;user-select:none}
+.column-order-item.is-dragging{opacity:.45}

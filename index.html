@@ -11,6 +11,7 @@
     <header class="toolbar">
       <div class="title">Data Viewer</div>
       <div class="spacer"></div>
+      <button id="openSettings" class="button">設定</button>
       <button id="refreshData" class="button">再読み込み</button>
     </header>
 
@@ -24,6 +25,25 @@
         </table>
       </div>
     </main>
+
+    <section id="settingsPanel" class="settings-panel" hidden>
+      <div class="settings-card">
+        <div class="settings-header">
+          <strong>列設定</strong>
+          <button id="closeSettings" class="button">閉じる</button>
+        </div>
+        <div class="settings-body">
+          <div class="settings-help">ドラッグして列順を変更します。</div>
+          <div id="columnOrderList" class="column-order-list"></div>
+        </div>
+        <div class="settings-footer">
+          <button id="resetColumnOrder" class="button">Tableau順に戻す</button>
+          <div class="spacer"></div>
+          <button id="cancelSettings" class="button">キャンセル</button>
+          <button id="applySettings" class="button">適用</button>
+        </div>
+      </div>
+    </section>
 
     <footer class="footer">
       <div id="status">-</div>
