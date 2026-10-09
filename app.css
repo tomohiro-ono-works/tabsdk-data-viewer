@@ -35,3 +35,10 @@ tbody tr:hover td{background:#e8f0fe}
 .column-order-list{display:flex;flex-direction:column;gap:6px}
 .column-order-item{padding:8px 10px;border:1px solid var(--border);background:#fff;cursor:grab;user-select:none}
 .column-order-item.is-dragging{opacity:.45}
+
+.settings-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.settings-number{width:84px;height:30px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;font:inherit}
+thead th.fixed-column{z-index:6;background:#f1f3f4}
+tbody td.fixed-column{position:sticky;z-index:1;background:#fff}
+tbody tr:hover td.fixed-column{background:#e8f0fe}
+.fixed-column-boundary{box-shadow:2px 0 0 rgba(60,64,67,.16)}
