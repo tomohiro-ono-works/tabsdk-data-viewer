@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
-  <worksheet-extension id="com.example.tabsdk-data-viewer" extension-version="0.9.0">
+  <worksheet-extension id="com.example.tabsdk-data-viewer" extension-version="0.10.0">
     <default-locale>ja_JP</default-locale>
     <name resource-id="name"/>
     <description>Tableau Viz Extension 用の大容量帳票ビューア</description>

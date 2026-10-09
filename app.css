@@ -42,3 +42,14 @@ thead th.fixed-column{z-index:6;background:#f1f3f4}
 tbody td.fixed-column{position:sticky;z-index:1;background:#fff}
 tbody tr:hover td.fixed-column{background:#e8f0fe}
 .fixed-column-boundary{box-shadow:2px 0 0 rgba(60,64,67,.16)}
+
+.column-order-item{display:flex;align-items:center;gap:8px}
+.column-order-handle{flex:0 0 auto;color:var(--muted);cursor:grab}
+.column-order-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.column-mode-select{flex:0 0 112px;height:30px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;font:inherit}
+.cell-visual{position:relative}
+.cell-visual-label{position:relative;z-index:1}
+.cell-bar-fill{position:absolute;z-index:0;left:0;top:4px;bottom:4px;background:rgba(26,115,232,.18);pointer-events:none}
+.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
+tbody tr:hover td.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
+tbody tr:hover td.cell-bar{background:#e8f0fe}

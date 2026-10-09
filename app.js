@@ -7,6 +7,7 @@
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
   const COLUMN_ORDER_KEY = 'columnOrderV1';
   const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
+  const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -25,6 +26,8 @@
   let autoColumnWidths = {};
   let savedColumnOrder = [];
   let fixedColumnCount = 0;
+  let columnDisplayModes = {};
+  let numericFieldNames = new Set();
   let textMeasureContext = null;
 
   const $ = (id) => document.getElementById(id);
@@ -326,6 +329,39 @@
         : 0;
   }
 
+  function loadColumnDisplayModes() {
+    const raw = tableau.extensions.settings.get(COLUMN_DISPLAY_MODES_KEY);
+
+    if (!raw) {
+      columnDisplayModes = {};
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      columnDisplayModes =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed
+          : {};
+    } catch (error) {
+      console.warn('Column display settings could not be parsed.', error);
+      columnDisplayModes = {};
+    }
+  }
+
+  async function saveColumnDisplayModes() {
+    tableau.extensions.settings.set(
+      COLUMN_DISPLAY_MODES_KEY,
+      JSON.stringify(columnDisplayModes)
+    );
+
+    try {
+      await tableau.extensions.settings.saveAsync();
+    } catch (error) {
+      console.warn('Column display settings could not be saved.', error);
+    }
+  }
+
   async function saveFixedColumnCount() {
     tableau.extensions.settings.set(
       FIXED_COLUMN_COUNT_KEY,
@@ -480,6 +516,92 @@
     });
   }
 
+  function numericValue(cell) {
+    const value = rawValue(cell);
+
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function getNumericScale(columnInfo, dataTable) {
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const row of dataTable.data) {
+      const value = numericValue(row[columnInfo.cellIndex]);
+
+      if (value === null) continue;
+
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      return null;
+    }
+
+    return { min, max };
+  }
+
+  function normalizedRatio(value, scale) {
+    if (value === null || !scale) return 0;
+
+    if (scale.max === scale.min) {
+      return 1;
+    }
+
+    return Math.max(
+      0,
+      Math.min(1, (value - scale.min) / (scale.max - scale.min))
+    );
+  }
+
+  function renderValueCell(td, cell, mode, scale) {
+    const text = displayValue(cell);
+
+    if (mode === 'bar' && scale) {
+      const value = numericValue(cell);
+      const ratio = normalizedRatio(value, scale);
+
+      td.classList.add('cell-visual', 'cell-bar');
+
+      const bar = document.createElement('span');
+      bar.className = 'cell-bar-fill';
+      bar.style.width = Math.round(ratio * 10000) / 100 + '%';
+
+      const label = document.createElement('span');
+      label.className = 'cell-visual-label';
+      label.textContent = text;
+
+      td.appendChild(bar);
+      td.appendChild(label);
+      return;
+    }
+
+    if (mode === 'heatmap' && scale) {
+      const value = numericValue(cell);
+      const ratio = normalizedRatio(value, scale);
+
+      td.classList.add('cell-visual', 'cell-heatmap');
+      td.style.setProperty(
+        '--heat-strength',
+        String(0.08 + ratio * 0.42)
+      );
+
+      const label = document.createElement('span');
+      label.className = 'cell-visual-label';
+      label.textContent = text;
+      td.appendChild(label);
+      return;
+    }
+
+    td.textContent = text;
+  }
+
   function renderTable(dataTable) {
     const table = $('dataTable');
     const thead = table.querySelector('thead');
@@ -549,15 +671,51 @@
         alignmentClass(column, dataTable, cellIndex)
     );
 
+    numericFieldNames = new Set(
+      displayColumns
+        .filter((_, index) => alignmentClasses[index] === 'cell-number')
+        .map((columnInfo) => columnInfo.fieldName)
+    );
+
+    const scales = new Map();
+
+    displayColumns.forEach((columnInfo, index) => {
+      const mode = columnDisplayModes[columnInfo.fieldName] || 'normal';
+
+      if (
+        alignmentClasses[index] === 'cell-number' &&
+        (mode === 'bar' || mode === 'heatmap')
+      ) {
+        scales.set(
+          columnInfo.fieldName,
+          getNumericScale(columnInfo, dataTable)
+        );
+      }
+    });
+
     const fragment = document.createDocumentFragment();
 
     dataTable.data.forEach((row) => {
       const tr = document.createElement('tr');
 
-      displayColumns.forEach(({ cellIndex }, displayIndex) => {
+      displayColumns.forEach((columnInfo, displayIndex) => {
         const td = document.createElement('td');
         td.classList.add(alignmentClasses[displayIndex]);
-        td.textContent = displayValue(row[cellIndex]);
+
+        const requestedMode =
+          columnDisplayModes[columnInfo.fieldName] || 'normal';
+        const mode =
+          alignmentClasses[displayIndex] === 'cell-number'
+            ? requestedMode
+            : 'normal';
+
+        renderValueCell(
+          td,
+          row[columnInfo.cellIndex],
+          mode,
+          scales.get(columnInfo.fieldName)
+        );
+
         tr.appendChild(td);
       });
 
@@ -750,6 +908,7 @@
     loadColumnWidths();
     loadColumnOrder();
     loadFixedColumnCount();
+    loadColumnDisplayModes();
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
@@ -785,7 +944,50 @@
       item.className = 'column-order-item';
       item.draggable = true;
       item.dataset.fieldName = fieldName;
-      item.textContent = fieldName;
+      const dragHandle = document.createElement('span');
+      dragHandle.className = 'column-order-handle';
+      dragHandle.textContent = '↕';
+
+      const label = document.createElement('span');
+      label.className = 'column-order-label';
+      label.textContent = fieldName;
+
+      const modeSelect = document.createElement('select');
+      modeSelect.className = 'column-mode-select';
+      modeSelect.dataset.fieldName = fieldName;
+
+      [
+        ['normal', '通常'],
+        ['bar', '棒グラフ'],
+        ['heatmap', 'ヒートマップ']
+      ].forEach(([value, text]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+
+        if (value !== 'normal' && !numericFieldNames.has(fieldName)) {
+          option.disabled = true;
+        }
+
+        modeSelect.appendChild(option);
+      });
+
+      const savedMode = columnDisplayModes[fieldName] || 'normal';
+      modeSelect.value =
+        numericFieldNames.has(fieldName) ? savedMode : 'normal';
+
+      modeSelect.addEventListener('pointerdown', (event) => {
+        event.stopPropagation();
+      });
+
+      modeSelect.addEventListener('dragstart', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+
+      item.appendChild(dragHandle);
+      item.appendChild(label);
+      item.appendChild(modeSelect);
 
       item.addEventListener('dragstart', (event) => {
         event.dataTransfer.setData('text/plain', fieldName);
@@ -840,13 +1042,29 @@
 
   async function applySettings() {
     const currentFields = mappedFields.map((field) => field.fieldName);
-    const items = Array.from(
+    const itemElements = Array.from(
       $('columnOrderList').querySelectorAll('.column-order-item')
-    ).map((item) => item.dataset.fieldName);
+    );
+
+    const items = itemElements.map((item) => item.dataset.fieldName);
 
     savedColumnOrder = items.filter((fieldName) =>
       currentFields.includes(fieldName)
     );
+
+    const nextDisplayModes = {};
+
+    itemElements.forEach((item) => {
+      const fieldName = item.dataset.fieldName;
+      const select = item.querySelector('.column-mode-select');
+      const mode = select ? select.value : 'normal';
+
+      if (mode !== 'normal' && numericFieldNames.has(fieldName)) {
+        nextDisplayModes[fieldName] = mode;
+      }
+    });
+
+    columnDisplayModes = nextDisplayModes;
 
     const requestedFixedCount = Number($('fixedColumnCount').value);
     fixedColumnCount = Number.isInteger(requestedFixedCount)
@@ -855,6 +1073,7 @@
 
     await saveColumnOrder();
     await saveFixedColumnCount();
+    await saveColumnDisplayModes();
     closeSettings();
     await refreshData('manual');
   }
