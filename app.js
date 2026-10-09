@@ -812,6 +812,8 @@
       return;
     }
 
+    // Intentionally preserve Tableau's worksheet ordering.
+    // Do not sort only the current 200-row page in the Extension.
     pageIndex = nextPage;
     const renderedColumnCount = renderTable(dataTable);
     updatePager();

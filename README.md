@@ -102,6 +102,11 @@ BigQuery / CSV / Excel / DB
 - 表示方式は `tableau.extensions.settings` に保存
 - Workbook再表示時に復元
 
+### タスク8: ソート
+- Extension側では現在ページ200行だけのクライアントソートを行わない
+- Tableau Extensions APIにはWorksheet全件のソート順を書き換える汎用APIがないため、ソートはTableau側で設定
+- DataTableReaderはTableau側で確定した並び順をそのままページング表示
+- フィルター変更・再読み込み後もTableau側の並び順を使用
+
 ## 次の予定
-- ソート
 - CSV / Clipboard / Excel エクスポート
