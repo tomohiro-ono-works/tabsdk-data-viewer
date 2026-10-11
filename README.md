@@ -144,3 +144,13 @@ BigQuery / CSV / Excel / DB
 - 一時的なページ取得失敗からの復旧、最大回数失敗時のエラー表示・Reader解放
 - 途中キャンセル、フィルター変更・SummaryDataChangedでの中断と画面復帰
 - 実際のTableau Cloud / Chromeでの負荷・保存完了テストはユーザー実施予定
+
+
+### タスク10: 表示列の統一・書式と色の設定
+- TREXの「行」を「表示列」に変更（内部IDはrowsを継続）。「ラベル」は廃止。以前ラベルに置いたフィールドは表示列へ再配置する
+- 設定 > 列設定で各列の表示書式を選択（Tableau書式 / 元の値 / 数値小数0～3桁 / %小数0～2桁 / 日付YYYY-MM-DD・YYYY/MM/DD）
+- 数値書式は桁区切り、小数桁数を固定。％は生値0.125を12.5％と解釈する
+- getSummaryDataReaderAsyncにapplyWorksheetFormatting: trueを設定。Tableau書式は表示値を優先
+- 棒グラフ・ヒートマップの色を列ごとにカラーピッカーで指定（初期値は青）。色はTableauのExtension Settingsに保存
+- 列の書式設定は表の表示・列幅計算・CSV・TSVに同一適用
+- Tableau上での配置・書式反映の実機テストは別途必要

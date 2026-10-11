@@ -3,11 +3,28 @@
 
   const PAGE_SIZE = 200;
   const AUTO_REFRESH_DELAY_MS = 150;
-  const ENCODING_ORDER = ['rows', 'label'];
+  // Preserve rows ID for existing field assignments.
+  const ENCODING_ORDER = ['rows'];
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
   const COLUMN_ORDER_KEY = 'columnOrderV1';
   const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
   const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
+  const COLUMN_FORMATS_KEY = 'columnFormatsV1';
+  const COLUMN_COLORS_KEY = 'columnColorsV1';
+  const DEFAULT_VISUAL_COLOR = '#1a73e8';
+  const FORMAT_PRESETS = [
+    ['tableau', 'Tableau書式'],
+    ['raw', '元の値'],
+    ['number0', '数値（小数0桁）'],
+    ['number1', '数値（小数1桁）'],
+    ['number2', '数値（小数2桁）'],
+    ['number3', '数値（小数3桁）'],
+    ['percent0', '％（小数0桁）'],
+    ['percent1', '％（小数1桁）'],
+    ['percent2', '％（小数2桁）'],
+    ['dateDash', '日付（YYYY-MM-DD）'],
+    ['dateSlash', '日付（YYYY/MM/DD）']
+  ];
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -32,6 +49,9 @@
   let savedColumnOrder = [];
   let fixedColumnCount = 0;
   let columnDisplayModes = {};
+  let columnFormats = {};
+  let columnColors = {};
+  let pendingColumnSettings = null;
   let numericFieldNames = new Set();
   let textMeasureContext = null;
   let exportInProgress = false;
@@ -94,6 +114,60 @@
     }
 
     return String(raw);
+  }
+
+  function formatValue(cell, fieldName) {
+    const format = columnFormats[fieldName] || 'tableau';
+    if (format === 'tableau') return displayValue(cell);
+    const raw = rawValue(cell);
+    if (raw === null || raw === undefined || raw === '') return '';
+    if (format === 'raw') {
+      return raw instanceof Date ? raw.toISOString() : String(raw);
+    }
+    if (/^(number|percent)[0-3]$/.test(format)) {
+      const numeric = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(numeric)) return displayValue(cell);
+      const percent = format.startsWith('percent');
+      const digits = Number(format.slice(-1));
+      return new Intl.NumberFormat('ja-JP', {
+        useGrouping: true,
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+        style: percent ? 'percent' : 'decimal'
+      }).format(numeric);
+    }
+    if (format === 'dateDash' || format === 'dateSlash') {
+      let dateText = '';
+      if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+        const year = raw.getFullYear();
+        const month = String(raw.getMonth() + 1).padStart(2, '0');
+        const day = String(raw.getDate()).padStart(2, '0');
+        dateText = year + '-' + month + '-' + day;
+      } else {
+        const match = String(raw).match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:$|[T\s])/);
+        if (match) {
+          dateText = match[1] + '-' +
+            match[2].padStart(2, '0') + '-' + match[3].padStart(2, '0');
+        }
+      }
+      if (!dateText) return displayValue(cell);
+      return format === 'dateSlash' ? dateText.replace(/-/g, '/') : dateText;
+    }
+    return displayValue(cell);
+  }
+
+  function visualColor(fieldName) {
+    const color = columnColors[fieldName];
+    return /^#[0-9a-fA-F]{6}$/.test(color || '')
+      ? color.toLowerCase() : DEFAULT_VISUAL_COLOR;
+  }
+
+  function visualRgba(fieldName, opacity) {
+    const hex = visualColor(fieldName);
+    return 'rgba(' +
+      parseInt(hex.slice(1, 3), 16) + ',' +
+      parseInt(hex.slice(3, 5), 16) + ',' +
+      parseInt(hex.slice(5, 7), 16) + ',' + opacity + ')';
   }
 
   function normalizeDataType(column) {
@@ -267,7 +341,7 @@
     for (const row of dataTable.data) {
       required = Math.max(
         required,
-        measureTextWidth(displayValue(row[columnInfo.cellIndex]))
+        measureTextWidth(formatValue(row[columnInfo.cellIndex], columnInfo.fieldName))
       );
 
       if (required + COLUMN_HORIZONTAL_PADDING >= MAX_COLUMN_WIDTH) {
@@ -366,6 +440,38 @@
       console.warn('Column display settings could not be parsed.', error);
       columnDisplayModes = {};
     }
+  }
+
+  function loadColumnPresentation() {
+    const read = (key) => {
+      try {
+        const parsed = JSON.parse(tableau.extensions.settings.get(key) || '{}');
+        return parsed && typeof parsed === 'object' &&
+          !Array.isArray(parsed) ? parsed : {};
+      } catch (error) {
+        console.warn('列の表示設定を復元できません。', key, error);
+        return {};
+      }
+    };
+    const formats = new Set(FORMAT_PRESETS.map(([key]) => key));
+    columnFormats = Object.fromEntries(
+      Object.entries(read(COLUMN_FORMATS_KEY))
+        .filter(([, value]) => formats.has(value))
+    );
+    columnColors = Object.fromEntries(
+      Object.entries(read(COLUMN_COLORS_KEY))
+        .filter(([, value]) => /^#[0-9a-fA-F]{6}$/.test(value))
+    );
+  }
+
+  async function saveColumnPresentation() {
+    tableau.extensions.settings.set(
+      COLUMN_FORMATS_KEY, JSON.stringify(columnFormats)
+    );
+    tableau.extensions.settings.set(
+      COLUMN_COLORS_KEY, JSON.stringify(columnColors)
+    );
+    await tableau.extensions.settings.saveAsync();
   }
 
   async function saveColumnDisplayModes() {
@@ -579,8 +685,8 @@
     );
   }
 
-  function renderValueCell(td, cell, mode, scale) {
-    const text = displayValue(cell);
+  function renderValueCell(td, cell, mode, scale, fieldName) {
+    const text = formatValue(cell, fieldName);
 
     if (mode === 'bar' && scale) {
       const value = numericValue(cell);
@@ -591,6 +697,7 @@
       const bar = document.createElement('span');
       bar.className = 'cell-bar-fill';
       bar.style.width = Math.round(ratio * 10000) / 100 + '%';
+      bar.style.backgroundColor = visualRgba(fieldName, 0.24);
 
       const label = document.createElement('span');
       label.className = 'cell-visual-label';
@@ -606,10 +713,7 @@
       const ratio = normalizedRatio(value, scale);
 
       td.classList.add('cell-visual', 'cell-heatmap');
-      td.style.setProperty(
-        '--heat-strength',
-        String(0.08 + ratio * 0.42)
-      );
+      td.style.backgroundColor = visualRgba(fieldName, 0.08 + ratio * 0.42);
 
       const label = document.createElement('span');
       label.className = 'cell-visual-label';
@@ -732,7 +836,8 @@
           td,
           row[columnInfo.cellIndex],
           mode,
-          scales.get(columnInfo.fieldName)
+          scales.get(columnInfo.fieldName),
+          columnInfo.fieldName
         );
 
         tr.appendChild(td);
@@ -868,7 +973,7 @@
           displayColumns
             .map((columnInfo) =>
               escapeDelimitedValue(
-                displayValue(row[columnInfo.cellIndex]),
+                formatValue(row[columnInfo.cellIndex], columnInfo.fieldName),
                 delimiter
               )
             )
@@ -962,7 +1067,7 @@
         const offset = s.pendingOffset || 0;
         const lines = page.data.slice(offset).map(row =>
           columns.map(info =>
-            escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
+            escapeDelimitedValue(formatValue(row[info.cellIndex], info.fieldName), ',')
           ).join(',') + '\r\n'
         );
         if (!lines.length) {
@@ -1117,7 +1222,10 @@
       checkCsvSession(s);
       renderEmptyTable();
       s.reader = await worksheet.getSummaryDataReaderAsync(
-        CSV_PAGE_SIZE, { ignoreSelection: true });
+        CSV_PAGE_SIZE, {
+          ignoreSelection: true,
+          applyWorksheetFormatting: true
+        });
       checkCsvSession(s);
       s.totalRows = s.reader.totalRowCount;
       if (!s.totalRows) throw new Error('出力対象の行がありません。');
@@ -1281,7 +1389,7 @@
   async function createReader() {
     reader = await worksheet.getSummaryDataReaderAsync(
       PAGE_SIZE,
-      { ignoreSelection: true }
+      { ignoreSelection: true, applyWorksheetFormatting: true }
     );
 
     pageIndex = 0;
@@ -1314,7 +1422,7 @@
 
     if (renderedColumnCount === 0) {
       setMessage(
-        '「行」または「ラベル」に設定したフィールドをSummary Dataで確認できません。',
+        '「表示列」に設定したフィールドをSummary Dataで確認できません。',
         'error'
       );
     } else {
@@ -1349,7 +1457,7 @@
       renderEmptyTable();
       updatePager();
       setMessage(
-        'TableauのViz Extension設定で「行」または「ラベル」にフィールドを追加してください。'
+        'TableauのViz Extension設定で「表示列」にフィールドを追加してください。'
       );
       setBusy(false);
       return;
@@ -1417,6 +1525,7 @@
     loadColumnOrder();
     loadFixedColumnCount();
     loadColumnDisplayModes();
+    loadColumnPresentation();
 
     removeSummaryListener = worksheet.addEventListener(
       tableau.TableauEventType.SummaryDataChanged,
@@ -1438,150 +1547,200 @@
   function renderColumnOrderSettings() {
     const list = $('columnOrderList');
     list.innerHTML = '';
-
-    const currentFields = mappedFields.map((field) => field.fieldName);
-    const ordered = savedColumnOrder
-      .filter((fieldName) => currentFields.includes(fieldName));
-
-    currentFields.forEach((fieldName) => {
+    const currentFields = mappedFields.map(field => field.fieldName);
+    const ordered = savedColumnOrder.filter(fieldName =>
+      currentFields.includes(fieldName));
+    currentFields.forEach(fieldName => {
       if (!ordered.includes(fieldName)) ordered.push(fieldName);
     });
 
-    ordered.forEach((fieldName) => {
+    const draft = pendingColumnSettings || {
+      modes: columnDisplayModes,
+      formats: columnFormats,
+      colors: columnColors
+    };
+
+    ordered.forEach(fieldName => {
       const item = document.createElement('div');
       item.className = 'column-order-item';
       item.draggable = true;
       item.dataset.fieldName = fieldName;
-      const dragHandle = document.createElement('span');
-      dragHandle.className = 'column-order-handle';
-      dragHandle.textContent = '↕';
 
-      const label = document.createElement('span');
-      label.className = 'column-order-label';
-      label.textContent = fieldName;
+      const handle = document.createElement('span');
+      handle.className = 'column-order-handle';
+      handle.textContent = '↕';
+      handle.title = 'ドラッグして列順を変更';
+      item.appendChild(handle);
 
-      const modeSelect = document.createElement('select');
-      modeSelect.className = 'column-mode-select';
-      modeSelect.dataset.fieldName = fieldName;
+      const name = document.createElement('strong');
+      name.className = 'column-order-label';
+      name.textContent = fieldName;
+      item.appendChild(name);
 
-      [
-        ['normal', '通常'],
-        ['bar', '棒グラフ'],
-        ['heatmap', 'ヒートマップ']
-      ].forEach(([value, text]) => {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = text;
+      const addSelect = (className, caption, choices, value) => {
+        const label = document.createElement('label');
+        label.className = 'column-setting-field';
+        const title = document.createElement('span');
+        title.textContent = caption;
+        label.appendChild(title);
+        const select = document.createElement('select');
+        select.className = className;
+        choices.forEach(([key, text]) => {
+          const option = document.createElement('option');
+          option.value = key;
+          option.textContent = text;
+          if (className === 'column-mode-select' &&
+              key !== 'normal' && !numericFieldNames.has(fieldName)) {
+            option.disabled = true;
+          }
+          select.appendChild(option);
+        });
+        select.value = value;
+        select.addEventListener('pointerdown', event => event.stopPropagation());
+        select.addEventListener('dragstart', event => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        label.appendChild(select);
+        item.appendChild(label);
+        return select;
+      };
 
-        if (value !== 'normal' && !numericFieldNames.has(fieldName)) {
-          option.disabled = true;
-        }
-
-        modeSelect.appendChild(option);
+      const format = addSelect(
+        'column-format-select', '表示書式',
+        FORMAT_PRESETS, draft.formats[fieldName] || 'tableau'
+      );
+      format.addEventListener('change', () => {
+        if (pendingColumnSettings) pendingColumnSettings.formats[fieldName] = format.value;
       });
 
-      const savedMode = columnDisplayModes[fieldName] || 'normal';
-      modeSelect.value =
-        numericFieldNames.has(fieldName) ? savedMode : 'normal';
+      const numeric = numericFieldNames.has(fieldName);
+      const mode = addSelect(
+        'column-mode-select', '表示方式',
+        [['normal', '通常'], ['bar', '棒グラフ'], ['heatmap', 'ヒートマップ']],
+        numeric ? draft.modes[fieldName] || 'normal' : 'normal'
+      );
 
-      modeSelect.addEventListener('pointerdown', (event) => {
-        event.stopPropagation();
-      });
-
-      modeSelect.addEventListener('dragstart', (event) => {
+      const colorField = document.createElement('label');
+      colorField.className = 'column-setting-field column-color-field';
+      const colorTitle = document.createElement('span');
+      colorTitle.textContent = '色';
+      colorField.appendChild(colorTitle);
+      const color = document.createElement('input');
+      color.className = 'column-color-input';
+      color.type = 'color';
+      const chosenColor = draft.colors[fieldName] || DEFAULT_VISUAL_COLOR;
+      color.value = /^#[0-9a-fA-F]{6}$/.test(chosenColor) ?
+        chosenColor : DEFAULT_VISUAL_COLOR;
+      color.disabled = !numeric;
+      colorField.hidden = mode.value === 'normal' || !numeric;
+      color.addEventListener('pointerdown', event => event.stopPropagation());
+      color.addEventListener('dragstart', event => {
         event.preventDefault();
         event.stopPropagation();
       });
+      color.addEventListener('input', () => {
+        if (pendingColumnSettings) pendingColumnSettings.colors[fieldName] = color.value;
+      });
+      colorField.appendChild(color);
+      item.appendChild(colorField);
 
-      item.appendChild(dragHandle);
-      item.appendChild(label);
-      item.appendChild(modeSelect);
+      mode.addEventListener('change', () => {
+        if (pendingColumnSettings) pendingColumnSettings.modes[fieldName] = mode.value;
+        colorField.hidden = mode.value === 'normal' || !numeric;
+      });
 
-      item.addEventListener('dragstart', (event) => {
+      item.addEventListener('dragstart', event => {
+        if (event.target !== item && event.target !== handle && event.target !== name) {
+          event.preventDefault();
+          return;
+        }
         event.dataTransfer.setData('text/plain', fieldName);
         event.dataTransfer.effectAllowed = 'move';
         item.classList.add('is-dragging');
       });
-
-      item.addEventListener('dragend', () => {
-        item.classList.remove('is-dragging');
-      });
-
-      item.addEventListener('dragover', (event) => {
+      item.addEventListener('dragend', () => item.classList.remove('is-dragging'));
+      item.addEventListener('dragover', event => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
       });
-
-      item.addEventListener('drop', (event) => {
+      item.addEventListener('drop', event => {
         event.preventDefault();
-        const sourceField = event.dataTransfer.getData('text/plain');
-        if (!sourceField || sourceField === fieldName) return;
-
+        const source = event.dataTransfer.getData('text/plain');
+        if (!source || source === fieldName) return;
         const next = ordered.slice();
-        const from = next.indexOf(sourceField);
+        const from = next.indexOf(source);
         const to = next.indexOf(fieldName);
         if (from < 0 || to < 0) return;
-
         next.splice(from, 1);
-        next.splice(to, 0, sourceField);
+        next.splice(to, 0, source);
         savedColumnOrder = next;
         renderColumnOrderSettings();
       });
-
       list.appendChild(item);
     });
   }
 
   function openSettings() {
+    pendingColumnSettings = {
+      modes: { ...columnDisplayModes },
+      formats: { ...columnFormats },
+      colors: { ...columnColors }
+    };
     renderColumnOrderSettings();
-
     const fixedInput = $('fixedColumnCount');
     fixedInput.max = String(mappedFields.length);
-    fixedInput.value = String(
-      Math.min(fixedColumnCount, mappedFields.length)
-    );
-
+    fixedInput.value = String(Math.min(fixedColumnCount, mappedFields.length));
     $('settingsPanel').hidden = false;
   }
 
   function closeSettings() {
+    pendingColumnSettings = null;
     $('settingsPanel').hidden = true;
   }
 
   async function applySettings() {
-    const currentFields = mappedFields.map((field) => field.fieldName);
+    const currentFields = mappedFields.map(field => field.fieldName);
     const itemElements = Array.from(
       $('columnOrderList').querySelectorAll('.column-order-item')
     );
+    savedColumnOrder = itemElements
+      .map(item => item.dataset.fieldName)
+      .filter(fieldName => currentFields.includes(fieldName));
 
-    const items = itemElements.map((item) => item.dataset.fieldName);
+    const modes = {};
+    const formats = {};
+    const colors = {};
+    const validFormats = new Set(FORMAT_PRESETS.map(([key]) => key));
 
-    savedColumnOrder = items.filter((fieldName) =>
-      currentFields.includes(fieldName)
-    );
-
-    const nextDisplayModes = {};
-
-    itemElements.forEach((item) => {
+    itemElements.forEach(item => {
       const fieldName = item.dataset.fieldName;
-      const select = item.querySelector('.column-mode-select');
-      const mode = select ? select.value : 'normal';
-
-      if (mode !== 'normal' && numericFieldNames.has(fieldName)) {
-        nextDisplayModes[fieldName] = mode;
+      const modeValue = item.querySelector('.column-mode-select').value;
+      const fmt = item.querySelector('.column-format-select').value;
+      const colorValue = item.querySelector('.column-color-input').value;
+      if (modeValue !== 'normal' && numericFieldNames.has(fieldName)) {
+        modes[fieldName] = modeValue;
+      }
+      if (fmt !== 'tableau' && validFormats.has(fmt)) {
+        formats[fieldName] = fmt;
+      }
+      if (/^#[0-9a-fA-F]{6}$/.test(colorValue) &&
+          colorValue.toLowerCase() !== DEFAULT_VISUAL_COLOR) {
+        colors[fieldName] = colorValue.toLowerCase();
       }
     });
 
-    columnDisplayModes = nextDisplayModes;
+    columnDisplayModes = modes;
+    columnFormats = formats;
+    columnColors = colors;
 
     const requestedFixedCount = Number($('fixedColumnCount').value);
     fixedColumnCount = Number.isInteger(requestedFixedCount)
-      ? Math.max(0, Math.min(requestedFixedCount, currentFields.length))
-      : 0;
-
+      ? Math.max(0, Math.min(requestedFixedCount, currentFields.length)) : 0;
     await saveColumnOrder();
     await saveFixedColumnCount();
     await saveColumnDisplayModes();
+    await saveColumnPresentation();
     closeSettings();
     await refreshData('manual');
   }

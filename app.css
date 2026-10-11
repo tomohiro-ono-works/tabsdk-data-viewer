@@ -64,3 +64,18 @@ tbody tr:hover td.cell-bar{background:#e8f0fe}
 .csv-details{word-break:break-all;color:var(--muted);font-size:12px}
 .csv-actions{display:flex;gap:8px;flex-wrap:wrap}
 .csv-note{font-size:12px;color:var(--muted)}
+
+/* Column-level presentation controls */
+.settings-card{width:min(840px,calc(100vw - 24px));max-height:calc(100% - 54px)}
+.column-order-item{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.column-order-label{flex:1 1 125px;min-width:110px;align-self:center}
+.column-setting-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11px;color:var(--muted)}
+.column-setting-field select{height:32px;max-width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);font:12px Arial,"Noto Sans JP",sans-serif}
+.column-format-select{width:205px}
+.column-mode-select{width:128px}
+.column-color-field{width:58px}
+.column-color-field[hidden]{display:none}
+.column-color-input{width:52px;height:32px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.column-order-handle{align-self:center}
+
+.column-setting-field .column-mode-select{flex:0 0 auto}
