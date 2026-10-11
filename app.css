@@ -121,3 +121,11 @@ tbody td.is-selected-cell,tbody tr:hover td.is-selected-cell{outline:2px solid v
   .toolbar-status{flex-basis:80px}
   #page{min-width:50px}
 }
+
+/* Excel-style rectangular selection. Must override row hover and heatmap backgrounds. */
+.table-wrap{user-select:none;-webkit-user-select:none}
+tbody td.is-selected-cell,
+tbody tr:hover td.is-selected-cell,
+tbody tr:hover td.is-selected-cell.cell-heatmap,
+tbody td.is-selected-cell.cell-heatmap{background:#d2e3fc!important;outline:1px solid #7baaf7;outline-offset:-1px}
+tbody td.is-selected-cell.cell-bar .cell-bar-fill{opacity:.7}
