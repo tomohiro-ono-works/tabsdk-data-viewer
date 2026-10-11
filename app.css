@@ -79,3 +79,22 @@ tbody tr:hover td.cell-bar{background:#e8f0fe}
 .column-order-handle{align-self:center}
 
 .column-setting-field .column-mode-select{flex:0 0 auto}
+
+/* Stable column settings; column ordering belongs to Tableau. */
+.column-settings-list{display:flex;flex-direction:column;gap:8px}
+.column-setting-item{padding:10px;border:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;background:#fff}
+.column-setting-name{flex:1 1 140px;min-width:120px;align-self:center;word-break:break-word}
+.column-gradient-settings{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px;border:1px solid var(--grid);background:var(--subtle);border-radius:4px}
+.column-gradient-settings[hidden]{display:none}
+.column-gradient-description{flex:1 0 100%;color:var(--muted);font-size:11px}
+.column-gradient-stop{display:flex;align-items:center;gap:6px;flex:1 1 160px;min-width:150px}
+.column-gradient-label{font-size:12px;white-space:nowrap}
+.column-gradient-boundary{width:95px;max-width:100%;height:32px;padding:4px 6px;border:1px solid var(--border);background:#fff;border-radius:3px;font:inherit}
+.column-gradient-color{width:45px;height:32px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.settings-error{padding:8px;margin-bottom:10px;color:#b3261e;border:1px solid #f0b5b0;background:#fce8e6}
+.settings-error[hidden]{display:none}
+tbody td.is-selected-cell,tbody tr:hover td.is-selected-cell{outline:2px solid var(--blue);outline-offset:-2px;background-color:#e8f0fe}
+.cell-menu{position:fixed;z-index:40;min-width:145px;padding:4px;border:1px solid var(--border);border-radius:4px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.cell-menu[hidden]{display:none}
+.cell-menu-action{display:block;width:100%;padding:9px 12px;border:0;background:#fff;text-align:left;font:inherit;cursor:pointer;color:var(--text)}
+.cell-menu-action:hover,.cell-menu-action:focus-visible{background:var(--subtle)}

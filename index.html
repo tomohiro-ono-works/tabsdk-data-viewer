@@ -53,17 +53,21 @@
             <span>左から固定する列数</span>
             <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
           </label>
-          <div class="settings-help">0で固定なし。列順はドラッグで変更します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと色を選択できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
-          <div id="columnOrderList" class="column-order-list"></div>
+          <div class="settings-help">0で固定なし。列順はTableauの「表示列」の順序を使用します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値と色を指定できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
+          <div id="settingsError" class="settings-error" role="alert" hidden></div>
+          <div id="columnSettingsList" class="column-settings-list"></div>
         </div>
         <div class="settings-footer">
-          <button id="resetColumnOrder" class="button">Tableau順に戻す</button>
           <div class="spacer"></div>
           <button id="cancelSettings" class="button">キャンセル</button>
           <button id="applySettings" class="button">適用</button>
         </div>
       </div>
     </section>
+
+    <div id="cellMenu" class="cell-menu" role="menu" hidden>
+      <button id="copyCell" class="cell-menu-action" type="button" role="menuitem">選択したセルをコピー</button>
+    </div>
 
     <footer class="footer">
       <div id="status">-</div>

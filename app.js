@@ -6,11 +6,17 @@
   // Preserve rows ID for existing field assignments.
   const ENCODING_ORDER = ['rows'];
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
-  const COLUMN_ORDER_KEY = 'columnOrderV1';
   const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
   const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
   const COLUMN_FORMATS_KEY = 'columnFormatsV1';
   const COLUMN_COLORS_KEY = 'columnColorsV1';
+  const COLUMN_GRADIENTS_KEY = 'columnGradientsV1';
+  const DEFAULT_GRADIENT_COLORS = {
+    low: '#e8f0fe',
+    mid: '#90caf9',
+    high: '#1a73e8'
+  };
+  const GRADIENT_STOPS = ['low', 'mid', 'high'];
   const DEFAULT_VISUAL_COLOR = '#1a73e8';
   const FORMAT_PRESETS = [
     ['tableau', 'Tableau書式'],
@@ -46,11 +52,12 @@
   let mappedFields = [];
   let manualColumnWidths = {};
   let autoColumnWidths = {};
-  let savedColumnOrder = [];
   let fixedColumnCount = 0;
   let columnDisplayModes = {};
   let columnFormats = {};
   let columnColors = {};
+  let columnGradients = {};
+  let selectedCell = null;
   let pendingColumnSettings = null;
   let numericFieldNames = new Set();
   let textMeasureContext = null;
@@ -299,7 +306,7 @@
       });
     });
 
-    return sortDisplayColumns(resolved);
+    return resolved;
   }
 
   function clampColumnWidth(width) {
@@ -393,25 +400,6 @@
     }
   }
 
-  function loadColumnOrder() {
-    const raw = tableau.extensions.settings.get(COLUMN_ORDER_KEY);
-
-    if (!raw) {
-      savedColumnOrder = [];
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      savedColumnOrder = Array.isArray(parsed)
-        ? parsed.filter((value) => typeof value === 'string')
-        : [];
-    } catch (error) {
-      console.warn('Column order settings could not be parsed.', error);
-      savedColumnOrder = [];
-    }
-  }
-
   function loadFixedColumnCount() {
     const raw = tableau.extensions.settings.get(FIXED_COLUMN_COUNT_KEY);
     const parsed = Number(raw);
@@ -460,8 +448,9 @@
     );
     columnColors = Object.fromEntries(
       Object.entries(read(COLUMN_COLORS_KEY))
-        .filter(([, value]) => /^#[0-9a-fA-F]{6}$/.test(value))
+        .filter(([, value]) => validHex(value))
     );
+    columnGradients = read(COLUMN_GRADIENTS_KEY);
   }
 
   async function saveColumnPresentation() {
@@ -470,6 +459,9 @@
     );
     tableau.extensions.settings.set(
       COLUMN_COLORS_KEY, JSON.stringify(columnColors)
+    );
+    tableau.extensions.settings.set(
+      COLUMN_GRADIENTS_KEY, JSON.stringify(columnGradients)
     );
     await tableau.extensions.settings.saveAsync();
   }
@@ -500,52 +492,13 @@
     }
   }
 
-  async function saveColumnOrder() {
-    tableau.extensions.settings.set(
-      COLUMN_ORDER_KEY,
-      JSON.stringify(savedColumnOrder)
-    );
-
-    try {
-      await tableau.extensions.settings.saveAsync();
-    } catch (error) {
-      console.warn('Column order settings could not be saved.', error);
-    }
-  }
-
-  function sortDisplayColumns(displayColumns) {
-    if (!savedColumnOrder.length) return displayColumns;
-
-    const rank = new Map(
-      savedColumnOrder.map((fieldName, index) => [fieldName, index])
-    );
-
-    return displayColumns
-      .map((item, originalIndex) => ({ item, originalIndex }))
-      .sort((a, b) => {
-        const ar = rank.has(a.item.fieldName)
-          ? rank.get(a.item.fieldName)
-          : Number.MAX_SAFE_INTEGER;
-        const br = rank.has(b.item.fieldName)
-          ? rank.get(b.item.fieldName)
-          : Number.MAX_SAFE_INTEGER;
-
-        return ar === br ? a.originalIndex - b.originalIndex : ar - br;
-      })
-      .map(({ item }) => item);
-  }
-
   async function saveColumnWidths() {
     tableau.extensions.settings.set(
       COLUMN_WIDTHS_KEY,
       JSON.stringify(manualColumnWidths)
     );
 
-    try {
-      await tableau.extensions.settings.saveAsync();
-    } catch (error) {
-      console.warn('Column width settings could not be saved.', error);
-    }
+    await tableau.extensions.settings.saveAsync();
   }
 
   function updateStickyOffsets(table) {
@@ -632,7 +585,7 @@
         );
 
         manualColumnWidths[fieldName] = finalWidth;
-        saveColumnWidths();
+        saveColumnWidths().catch(showError);
       };
 
       handle.addEventListener('pointermove', onMove);
@@ -685,19 +638,85 @@
     );
   }
 
+  function validHex(hex) {
+    return typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex);
+  }
+
+  function gradientConfig(fieldName) {
+    const saved = columnGradients[fieldName] || {};
+    const savedColors = saved.colors || {};
+    const legacyHigh = columnColors[fieldName];
+    const colors = {};
+    GRADIENT_STOPS.forEach(stop => {
+      const value = savedColors[stop] ||
+        (stop === 'high' ? legacyHigh : null) ||
+        DEFAULT_GRADIENT_COLORS[stop];
+      colors[stop] = validHex(value) ?
+        value.toLowerCase() : DEFAULT_GRADIENT_COLORS[stop];
+    });
+    const savedBounds = saved.bounds || {};
+    const bounds = {};
+    GRADIENT_STOPS.forEach(stop => {
+      const value = savedBounds[stop];
+      bounds[stop] = Number.isFinite(value) ? value : null;
+    });
+    return { colors, bounds };
+  }
+
+  function hexTriplet(hex) {
+    return [1,3,5].map(index => parseInt(hex.slice(index,index+2),16));
+  }
+
+  function interpolateRgb(a,b,ratio) {
+    const t = Math.max(0,Math.min(1,ratio));
+    const left = hexTriplet(a);
+    const right = hexTriplet(b);
+    return left.map((x,i) => Math.round(x + (right[i] - x) * t));
+  }
+
+  function valueColor(fieldName, value, scale) {
+    const config = gradientConfig(fieldName);
+    const bounds = config.bounds;
+    const manual = GRADIENT_STOPS.every(stop => bounds[stop] !== null);
+    const low = manual ? bounds.low : scale.min;
+    const mid = manual ? bounds.mid : (scale.min + scale.max) / 2;
+    const high = manual ? bounds.high : scale.max;
+    if (high <= low) return hexTriplet(config.colors.high);
+    if (value <= low) return hexTriplet(config.colors.low);
+    if (value >= high) return hexTriplet(config.colors.high);
+    if (value <= mid) {
+      const t = mid === low ? 1 : (value - low) / (mid - low);
+      return interpolateRgb(config.colors.low,config.colors.mid,t);
+    }
+    const t = high === mid ? 1 : (value - mid) / (high - mid);
+    return interpolateRgb(config.colors.mid,config.colors.high,t);
+  }
+
+  function heatColor(fieldName, value, scale) {
+    if (value === null) return '';
+    const rgb = valueColor(fieldName,value,scale);
+    return 'rgba(' + rgb.join(',') + ',0.48)';
+  }
+
+  function displayScale(fieldName, scale) {
+    const bounds = gradientConfig(fieldName).bounds;
+    return GRADIENT_STOPS.every(stop => bounds[stop] !== null) ?
+      {min:bounds.low,max:bounds.high} : scale;
+  }
+
   function renderValueCell(td, cell, mode, scale, fieldName) {
     const text = formatValue(cell, fieldName);
 
     if (mode === 'bar' && scale) {
       const value = numericValue(cell);
-      const ratio = normalizedRatio(value, scale);
+      const ratio = normalizedRatio(value, displayScale(fieldName,scale));
 
       td.classList.add('cell-visual', 'cell-bar');
 
       const bar = document.createElement('span');
       bar.className = 'cell-bar-fill';
       bar.style.width = Math.round(ratio * 10000) / 100 + '%';
-      bar.style.backgroundColor = visualRgba(fieldName, 0.24);
+      bar.style.backgroundColor = heatColor(fieldName,value,scale);
 
       const label = document.createElement('span');
       label.className = 'cell-visual-label';
@@ -710,10 +729,8 @@
 
     if (mode === 'heatmap' && scale) {
       const value = numericValue(cell);
-      const ratio = normalizedRatio(value, scale);
-
       td.classList.add('cell-visual', 'cell-heatmap');
-      td.style.backgroundColor = visualRgba(fieldName, 0.08 + ratio * 0.42);
+      td.style.backgroundColor = heatColor(fieldName,value,scale);
 
       const label = document.createElement('span');
       label.className = 'cell-visual-label';
@@ -725,7 +742,41 @@
     td.textContent = text;
   }
 
+  function hideCellMenu() {
+    $('cellMenu').hidden = true;
+  }
+
+  function clearCellSelection() {
+    if (selectedCell) selectedCell.classList.remove('is-selected-cell');
+    selectedCell = null;
+    hideCellMenu();
+  }
+
+  function selectCell(td) {
+    if (!td || !td.closest('tbody')) return;
+    if (selectedCell && selectedCell !== td) {
+      selectedCell.classList.remove('is-selected-cell');
+    }
+    selectedCell = td;
+    td.classList.add('is-selected-cell');
+    if (typeof td.focus === 'function') {
+      td.focus({preventScroll:true});
+    }
+  }
+
+  async function copySelectedCell() {
+    if (!selectedCell || !selectedCell.isConnected) {
+      hideCellMenu();
+      return;
+    }
+    const text = selectedCell.textContent || '';
+    hideCellMenu();
+    await writeClipboardText(text);
+    setMessage('選択したセルをコピーしました。');
+  }
+
   function renderTable(dataTable) {
+    clearCellSelection();
     const table = $('dataTable');
     const thead = table.querySelector('thead');
     const tbody = table.querySelector('tbody');
@@ -823,6 +874,7 @@
 
       displayColumns.forEach((columnInfo, displayIndex) => {
         const td = document.createElement('td');
+        td.tabIndex = -1;
         td.classList.add(alignmentClasses[displayIndex]);
 
         const requestedMode =
@@ -1331,6 +1383,7 @@
   }
 
   function renderEmptyTable() {
+    clearCellSelection();
     const table = $('dataTable');
     const colgroup = table.querySelector('colgroup');
 
@@ -1522,7 +1575,6 @@
     }
 
     loadColumnWidths();
-    loadColumnOrder();
     loadFixedColumnCount();
     loadColumnDisplayModes();
     loadColumnPresentation();
@@ -1544,210 +1596,185 @@
     await refreshData('initial');
   }
 
-  function renderColumnOrderSettings() {
-    const list = $('columnOrderList');
+  function setSettingsError(message) {
+    const el = $('settingsError');
+    el.textContent = message || '';
+    el.hidden = !message;
+  }
+
+  function renderColumnSettings() {
+    const list = $('columnSettingsList');
     list.innerHTML = '';
-    const currentFields = mappedFields.map(field => field.fieldName);
-    const ordered = savedColumnOrder.filter(fieldName =>
-      currentFields.includes(fieldName));
-    currentFields.forEach(fieldName => {
-      if (!ordered.includes(fieldName)) ordered.push(fieldName);
-    });
 
-    const draft = pendingColumnSettings || {
-      modes: columnDisplayModes,
-      formats: columnFormats,
-      colors: columnColors
-    };
-
-    ordered.forEach(fieldName => {
+    mappedFields.forEach(({fieldName}) => {
+      const numeric = numericFieldNames.has(fieldName);
+      const draft = pendingColumnSettings;
       const item = document.createElement('div');
-      item.className = 'column-order-item';
-      item.draggable = true;
+      item.className = 'column-setting-item';
       item.dataset.fieldName = fieldName;
 
-      const handle = document.createElement('span');
-      handle.className = 'column-order-handle';
-      handle.textContent = '↕';
-      handle.title = 'ドラッグして列順を変更';
-      item.appendChild(handle);
-
       const name = document.createElement('strong');
-      name.className = 'column-order-label';
+      name.className = 'column-setting-name';
       name.textContent = fieldName;
       item.appendChild(name);
 
-      const addSelect = (className, caption, choices, value) => {
-        const label = document.createElement('label');
-        label.className = 'column-setting-field';
-        const title = document.createElement('span');
-        title.textContent = caption;
-        label.appendChild(title);
+      const selectField = (caption,cssClass,options,chosen) => {
+        const field = document.createElement('label');
+        field.className = 'column-setting-field';
+        const description = document.createElement('span');
+        description.textContent = caption;
+        field.appendChild(description);
         const select = document.createElement('select');
-        select.className = className;
-        choices.forEach(([key, text]) => {
-          const option = document.createElement('option');
-          option.value = key;
-          option.textContent = text;
-          if (className === 'column-mode-select' &&
-              key !== 'normal' && !numericFieldNames.has(fieldName)) {
-            option.disabled = true;
-          }
-          select.appendChild(option);
+        select.className = cssClass;
+        options.forEach(([value,label]) => {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = label;
+          if (cssClass === 'column-mode-select' &&
+              value !== 'normal' && !numeric) opt.disabled = true;
+          select.appendChild(opt);
         });
-        select.value = value;
-        select.addEventListener('pointerdown', event => event.stopPropagation());
-        select.addEventListener('dragstart', event => {
-          event.preventDefault();
-          event.stopPropagation();
-        });
-        label.appendChild(select);
-        item.appendChild(label);
+        select.value = chosen;
+        field.appendChild(select);
+        item.appendChild(field);
         return select;
       };
 
-      const format = addSelect(
-        'column-format-select', '表示書式',
-        FORMAT_PRESETS, draft.formats[fieldName] || 'tableau'
-      );
-      format.addEventListener('change', () => {
-        if (pendingColumnSettings) pendingColumnSettings.formats[fieldName] = format.value;
-      });
+      selectField('表示書式','column-format-select',
+        FORMAT_PRESETS,draft.formats[fieldName] || 'tableau');
+      const mode = selectField('表示方式','column-mode-select',
+        [['normal','通常'],['bar','棒グラフ'],['heatmap','ヒートマップ']],
+        numeric ? (draft.modes[fieldName] || 'normal') : 'normal');
 
-      const numeric = numericFieldNames.has(fieldName);
-      const mode = addSelect(
-        'column-mode-select', '表示方式',
-        [['normal', '通常'], ['bar', '棒グラフ'], ['heatmap', 'ヒートマップ']],
-        numeric ? draft.modes[fieldName] || 'normal' : 'normal'
-      );
+      const config = draft.gradients[fieldName] || gradientConfig(fieldName);
+      const block = document.createElement('div');
+      block.className = 'column-gradient-settings';
+      const intro = document.createElement('div');
+      intro.className = 'column-gradient-description';
+      intro.textContent = '境界値は3つすべて入力すると固定、空欄なら自動です。値の間は色を補間します。';
+      block.appendChild(intro);
 
-      const colorField = document.createElement('label');
-      colorField.className = 'column-setting-field column-color-field';
-      const colorTitle = document.createElement('span');
-      colorTitle.textContent = '色';
-      colorField.appendChild(colorTitle);
-      const color = document.createElement('input');
-      color.className = 'column-color-input';
-      color.type = 'color';
-      const chosenColor = draft.colors[fieldName] || DEFAULT_VISUAL_COLOR;
-      color.value = /^#[0-9a-fA-F]{6}$/.test(chosenColor) ?
-        chosenColor : DEFAULT_VISUAL_COLOR;
-      color.disabled = !numeric;
-      colorField.hidden = mode.value === 'normal' || !numeric;
-      color.addEventListener('pointerdown', event => event.stopPropagation());
-      color.addEventListener('dragstart', event => {
-        event.preventDefault();
-        event.stopPropagation();
-      });
-      color.addEventListener('input', () => {
-        if (pendingColumnSettings) pendingColumnSettings.colors[fieldName] = color.value;
-      });
-      colorField.appendChild(color);
-      item.appendChild(colorField);
+      [['low','下限'],['mid','中間'],['high','上限']].forEach(([stop,label]) => {
+        const row = document.createElement('div');
+        row.className = 'column-gradient-stop';
+        const title = document.createElement('span');
+        title.className = 'column-gradient-label';
+        title.textContent = label;
+        row.appendChild(title);
 
-      mode.addEventListener('change', () => {
-        if (pendingColumnSettings) pendingColumnSettings.modes[fieldName] = mode.value;
-        colorField.hidden = mode.value === 'normal' || !numeric;
-      });
+        const boundary = document.createElement('input');
+        boundary.className = 'column-gradient-boundary';
+        boundary.dataset.stop = stop;
+        boundary.type = 'number';
+        boundary.step = 'any';
+        boundary.placeholder = '自動';
+        boundary.setAttribute('aria-label',fieldName + ' ' + label + 'の境界値');
+        boundary.value = config.bounds[stop] === null ||
+          config.bounds[stop] === undefined ? '' : String(config.bounds[stop]);
+        row.appendChild(boundary);
 
-      item.addEventListener('dragstart', event => {
-        if (event.target !== item && event.target !== handle && event.target !== name) {
-          event.preventDefault();
-          return;
-        }
-        event.dataTransfer.setData('text/plain', fieldName);
-        event.dataTransfer.effectAllowed = 'move';
-        item.classList.add('is-dragging');
+        const color = document.createElement('input');
+        color.className = 'column-gradient-color';
+        color.dataset.stop = stop;
+        color.type = 'color';
+        color.value = config.colors[stop];
+        color.setAttribute('aria-label',fieldName + ' ' + label + 'の色');
+        row.appendChild(color);
+        block.appendChild(row);
       });
-      item.addEventListener('dragend', () => item.classList.remove('is-dragging'));
-      item.addEventListener('dragover', event => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
+      block.hidden = !numeric || mode.value === 'normal';
+      mode.addEventListener('change',() => {
+        block.hidden = !numeric || mode.value === 'normal';
       });
-      item.addEventListener('drop', event => {
-        event.preventDefault();
-        const source = event.dataTransfer.getData('text/plain');
-        if (!source || source === fieldName) return;
-        const next = ordered.slice();
-        const from = next.indexOf(source);
-        const to = next.indexOf(fieldName);
-        if (from < 0 || to < 0) return;
-        next.splice(from, 1);
-        next.splice(to, 0, source);
-        savedColumnOrder = next;
-        renderColumnOrderSettings();
-      });
+      item.appendChild(block);
       list.appendChild(item);
     });
   }
 
   function openSettings() {
     pendingColumnSettings = {
-      modes: { ...columnDisplayModes },
-      formats: { ...columnFormats },
-      colors: { ...columnColors }
+      modes: {...columnDisplayModes},
+      formats: {...columnFormats},
+      gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
+        [fieldName,gradientConfig(fieldName)]))
     };
-    renderColumnOrderSettings();
+    renderColumnSettings();
     const fixedInput = $('fixedColumnCount');
     fixedInput.max = String(mappedFields.length);
-    fixedInput.value = String(Math.min(fixedColumnCount, mappedFields.length));
+    fixedInput.value = String(Math.min(fixedColumnCount,mappedFields.length));
+    setSettingsError('');
     $('settingsPanel').hidden = false;
+    hideCellMenu();
   }
 
   function closeSettings() {
     pendingColumnSettings = null;
+    setSettingsError('');
     $('settingsPanel').hidden = true;
   }
 
   async function applySettings() {
-    const currentFields = mappedFields.map(field => field.fieldName);
-    const itemElements = Array.from(
-      $('columnOrderList').querySelectorAll('.column-order-item')
+    const items = Array.from(
+      $('columnSettingsList').querySelectorAll('.column-setting-item')
     );
-    savedColumnOrder = itemElements
-      .map(item => item.dataset.fieldName)
-      .filter(fieldName => currentFields.includes(fieldName));
-
     const modes = {};
     const formats = {};
-    const colors = {};
+    const gradients = {};
     const validFormats = new Set(FORMAT_PRESETS.map(([key]) => key));
 
-    itemElements.forEach(item => {
+    for (const item of items) {
       const fieldName = item.dataset.fieldName;
-      const modeValue = item.querySelector('.column-mode-select').value;
-      const fmt = item.querySelector('.column-format-select').value;
-      const colorValue = item.querySelector('.column-color-input').value;
-      if (modeValue !== 'normal' && numericFieldNames.has(fieldName)) {
-        modes[fieldName] = modeValue;
+      const numeric = numericFieldNames.has(fieldName);
+      const mode = item.querySelector('.column-mode-select').value;
+      const format = item.querySelector('.column-format-select').value;
+      if (numeric && (mode === 'bar' || mode === 'heatmap')) {
+        modes[fieldName] = mode;
       }
-      if (fmt !== 'tableau' && validFormats.has(fmt)) {
-        formats[fieldName] = fmt;
+      if (validFormats.has(format) && format !== 'tableau') {
+        formats[fieldName] = format;
       }
-      if (/^#[0-9a-fA-F]{6}$/.test(colorValue) &&
-          colorValue.toLowerCase() !== DEFAULT_VISUAL_COLOR) {
-        colors[fieldName] = colorValue.toLowerCase();
+      if (!numeric) continue;
+
+      const config = {bounds:{},colors:{}};
+      item.querySelectorAll('.column-gradient-stop').forEach(row => {
+        const boundary = row.querySelector('.column-gradient-boundary');
+        const color = row.querySelector('.column-gradient-color');
+        const stop = boundary.dataset.stop;
+        const text = String(boundary.value).trim();
+        config.bounds[stop] = text === '' ? null : Number(text);
+        config.colors[stop] = color.value;
+      });
+      const count = GRADIENT_STOPS.filter(
+        stop => config.bounds[stop] !== null
+      ).length;
+      if (count !== 0 && count !== 3) {
+        setSettingsError('「' + fieldName + '」の境界値は、3つとも空欄か、3つとも入力してください。');
+        return;
       }
-    });
+      if (count === 3 && !(Number.isFinite(config.bounds.low) &&
+          Number.isFinite(config.bounds.mid) &&
+          Number.isFinite(config.bounds.high) &&
+          config.bounds.low < config.bounds.mid &&
+          config.bounds.mid < config.bounds.high)) {
+        setSettingsError('「' + fieldName + '」は「下限 < 中間 < 上限」の順に数値を指定してください。');
+        return;
+      }
+      gradients[fieldName] = config;
+    }
+
+    const requestedFixedCount = Number($('fixedColumnCount').value);
+    const newFixedCount = Number.isInteger(requestedFixedCount)
+      ? Math.max(0,Math.min(requestedFixedCount,mappedFields.length)) : 0;
 
     columnDisplayModes = modes;
     columnFormats = formats;
-    columnColors = colors;
-
-    const requestedFixedCount = Number($('fixedColumnCount').value);
-    fixedColumnCount = Number.isInteger(requestedFixedCount)
-      ? Math.max(0, Math.min(requestedFixedCount, currentFields.length)) : 0;
-    await saveColumnOrder();
+    columnGradients = gradients;
+    fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
     await saveColumnDisplayModes();
     await saveColumnPresentation();
     closeSettings();
     await refreshData('manual');
-  }
-
-  function resetColumnOrder() {
-    savedColumnOrder = [];
-    renderColumnOrderSettings();
   }
 
   function showError(error) {
@@ -1758,6 +1785,44 @@
     );
     setBusy(false);
   }
+
+  $('dataTable').addEventListener('click', event => {
+    const td = event.target.closest('tbody td');
+    if (td) selectCell(td);
+    hideCellMenu();
+  });
+
+  $('dataTable').addEventListener('contextmenu', event => {
+    const td = event.target.closest('tbody td');
+    if (!td) return;
+    event.preventDefault();
+    selectCell(td);
+    const menu = $('cellMenu');
+    // Fixed positioning prevents clipping by the scrollable table.
+    menu.style.left = Math.max(8,Math.min(event.clientX,window.innerWidth - 145)) + 'px';
+    menu.style.top = Math.max(8,Math.min(event.clientY,window.innerHeight - 50)) + 'px';
+    menu.hidden = false;
+    $('copyCell').focus();
+  });
+
+  $('copyCell').addEventListener('click', () => {
+    copySelectedCell().catch(showError);
+  });
+
+  document.addEventListener('pointerdown', event => {
+    if (!$('cellMenu').hidden && !$('cellMenu').contains(event.target)) {
+      hideCellMenu();
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') hideCellMenu();
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
+        selectedCell && !event.target.closest('input,textarea,select')) {
+      event.preventDefault();
+      copySelectedCell().catch(showError);
+    }
+  });
 
   $('prev').addEventListener('click', function () {
     loadPage(pageIndex - 1, generation).catch(showError);
@@ -1792,7 +1857,6 @@
   $('applySettings').addEventListener('click', function () {
     applySettings().catch(showError);
   });
-  $('resetColumnOrder').addEventListener('click', resetColumnOrder);
 
   window.addEventListener('beforeunload', function () {
     if (refreshTimer) {
