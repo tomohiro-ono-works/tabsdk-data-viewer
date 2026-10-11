@@ -57,6 +57,9 @@
   let columnColors = {};
   let columnGradients = {};
   let selectedCell = null;
+  let selectionAnchor = null;
+  let selectionFocus = null;
+  let pointerSelecting = false;
   let pendingColumnSettings = null;
   let numericFieldNames = new Set();
   let textMeasureContext = null;
@@ -738,33 +741,87 @@
     $('cellMenu').hidden = true;
   }
 
-  function clearCellSelection() {
-    if (selectedCell) selectedCell.classList.remove('is-selected-cell');
-    selectedCell = null;
-    hideCellMenu();
+  function cellPosition(td) {
+    const row = td && td.parentElement;
+    const body = row && row.parentElement;
+    if (!body || body.tagName !== 'TBODY') return null;
+    return { row: row.sectionRowIndex, col: td.cellIndex };
   }
 
-  function selectCell(td) {
-    if (!td || !td.closest('tbody')) return;
-    if (selectedCell && selectedCell !== td) {
-      selectedCell.classList.remove('is-selected-cell');
+  function selectionBounds() {
+    if (!selectionAnchor || !selectionFocus) return null;
+    return {
+      top: Math.min(selectionAnchor.row, selectionFocus.row),
+      bottom: Math.max(selectionAnchor.row, selectionFocus.row),
+      left: Math.min(selectionAnchor.col, selectionFocus.col),
+      right: Math.max(selectionAnchor.col, selectionFocus.col)
+    };
+  }
+
+  function isInSelection(td) {
+    const pos = cellPosition(td);
+    const b = selectionBounds();
+    return !!(pos && b && pos.row >= b.top && pos.row <= b.bottom &&
+      pos.col >= b.left && pos.col <= b.right);
+  }
+
+  function paintSelection() {
+    const body = $('dataTable').tBodies[0];
+    const b = selectionBounds();
+    for (const tr of body.rows) {
+      for (const td of tr.cells) {
+        const on = !!(b && tr.sectionRowIndex >= b.top &&
+          tr.sectionRowIndex <= b.bottom && td.cellIndex >= b.left &&
+          td.cellIndex <= b.right);
+        td.classList.toggle('is-selected-cell', on);
+        td.setAttribute('aria-selected', String(on));
+      }
     }
+  }
+
+  function clearCellSelection() {
+    selectionAnchor = null;
+    selectionFocus = null;
+    selectedCell = null;
+    pointerSelecting = false;
+    hideCellMenu();
+    paintSelection();
+  }
+
+  function selectCell(td, extend) {
+    const pos = cellPosition(td);
+    if (!pos) return;
+    if (!extend || !selectionAnchor) selectionAnchor = pos;
+    selectionFocus = pos;
     selectedCell = td;
-    td.classList.add('is-selected-cell');
-    if (typeof td.focus === 'function') {
-      td.focus({preventScroll:true});
+    paintSelection();
+    if (typeof td.focus === 'function') td.focus({ preventScroll: true });
+  }
+
+  function selectedText() {
+    const b = selectionBounds();
+    if (!b) return '';
+    const rows = $('dataTable').tBodies[0].rows;
+    const output = [];
+    for (let r = b.top; r <= b.bottom; r++) {
+      const cells = [];
+      for (let c = b.left; c <= b.right; c++) {
+        cells.push((rows[r].cells[c]?.textContent || '').replace(/\r?\n/g, ' '));
+      }
+      output.push(cells.join('\t'));
     }
+    return output.join('\r\n');
   }
 
   async function copySelectedCell() {
-    if (!selectedCell || !selectedCell.isConnected) {
+    if (!selectionBounds()) {
       hideCellMenu();
       return;
     }
-    const text = selectedCell.textContent || '';
+    const text = selectedText();
     hideCellMenu();
     await writeClipboardText(text);
-    setMessage('選択したセルをコピーしました。');
+    setMessage('選択範囲をコピーしました。');
   }
 
   function renderTable(dataTable) {
@@ -1666,21 +1723,34 @@
     setBusy(false);
   }
 
-  $('dataTable').addEventListener('click', event => {
+  const dataTableElement = $('dataTable');
+  dataTableElement.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
     const td = event.target.closest('tbody td');
-    if (td) selectCell(td);
+    if (!td) return;
     hideCellMenu();
+    selectCell(td, event.shiftKey);
+    pointerSelecting = true;
+    event.preventDefault(); // Prevent native text selection while dragging cells.
   });
 
-  $('dataTable').addEventListener('contextmenu', event => {
+  dataTableElement.addEventListener('pointerover', event => {
+    if (!pointerSelecting) return;
+    const td = event.target.closest('tbody td');
+    if (td) selectCell(td, true);
+  });
+
+  document.addEventListener('pointerup', () => { pointerSelecting = false; });
+  document.addEventListener('pointercancel', () => { pointerSelecting = false; });
+
+  dataTableElement.addEventListener('contextmenu', event => {
     const td = event.target.closest('tbody td');
     if (!td) return;
     event.preventDefault();
-    selectCell(td);
+    if (!isInSelection(td)) selectCell(td, false);
     const menu = $('cellMenu');
-    // Fixed positioning prevents clipping by the scrollable table.
-    menu.style.left = Math.max(8,Math.min(event.clientX,window.innerWidth - 145)) + 'px';
-    menu.style.top = Math.max(8,Math.min(event.clientY,window.innerHeight - 50)) + 'px';
+    menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - 145)) + 'px';
+    menu.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - 50)) + 'px';
     menu.hidden = false;
     $('copyCell').focus();
   });
@@ -1690,18 +1760,29 @@
   });
 
   document.addEventListener('pointerdown', event => {
-    if (!$('cellMenu').hidden && !$('cellMenu').contains(event.target)) {
-      hideCellMenu();
-    }
+    if (!$('cellMenu').hidden && !$('cellMenu').contains(event.target)) hideCellMenu();
   });
 
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') hideCellMenu();
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
-        selectedCell && !event.target.closest('input,textarea,select')) {
-      event.preventDefault();
-      copySelectedCell().catch(showError);
+        selectionBounds() && !event.target.closest('input,textarea,select')) {
+      // Let the browser dispatch a trusted copy event when available.
+      // The copy handler synchronously fills clipboardData inside the iframe.
+      if (!document.queryCommandSupported?.('copy')) {
+        event.preventDefault();
+        copySelectedCell().catch(showError);
+      }
     }
+  });
+
+  document.addEventListener('copy', event => {
+    if (!selectionBounds() || event.target.closest?.('input,textarea,select')) return;
+    if (!event.clipboardData) return;
+    event.clipboardData.setData('text/plain', selectedText());
+    event.preventDefault();
+    hideCellMenu();
+    setMessage('選択範囲をコピーしました。');
   });
 
   $('prev').addEventListener('click', function () {
