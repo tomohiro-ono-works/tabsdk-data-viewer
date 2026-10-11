@@ -35,7 +35,6 @@
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
   const COLUMN_HORIZONTAL_PADDING = 24;
-  const CLIPBOARD_WARNING_ROWS = 20000;
   const CSV_PAGE_SIZE = 5000;
   const CSV_MAX_ROWS = 100000;
   const CSV_MAX_BYTES = 32 * 1024 * 1024;
@@ -76,9 +75,7 @@
 
   function setBusy(busy) {
     $('refreshData').disabled = busy || exportInProgress;
-    $('openSettings').disabled = busy || exportInProgress;
     $('exportCsv').disabled = busy || exportInProgress || !reader;
-    $('copyTsv').disabled = busy || exportInProgress || !reader;
     $('prev').disabled =
       busy || exportInProgress || !reader || pageIndex <= 0;
     $('next').disabled =
@@ -86,11 +83,6 @@
       exportInProgress ||
       !reader ||
       pageIndex >= reader.pageCount - 1;
-  }
-
-  function setExportBusy(busy) {
-    exportInProgress = busy;
-    setBusy(false);
   }
 
   function rawValue(cell) {
@@ -955,94 +947,6 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
-  async function buildDelimitedExport(delimiter, includeBom) {
-    const activeReader = reader;
-    const expectedGeneration = generation;
-
-    if (!activeReader) {
-      throw new Error('エクスポート対象のReaderがありません。');
-    }
-
-    const parts = [];
-    let headerWritten = false;
-    let exportedRows = 0;
-
-    if (includeBom) {
-      parts.push('\uFEFF');
-    }
-
-    for (
-      let exportPage = 0;
-      exportPage < activeReader.pageCount;
-      exportPage++
-    ) {
-      if (
-        activeReader !== reader ||
-        expectedGeneration !== generation
-      ) {
-        throw new Error(
-          'エクスポート中にデータが更新されました。再度実行してください。'
-        );
-      }
-
-      setMessage(
-        'エクスポート中... ' +
-          (exportPage + 1) +
-          ' / ' +
-          activeReader.pageCount +
-          ' ページ',
-        'loading'
-      );
-
-      const dataTable = await activeReader.getPageAsync(exportPage);
-      const displayColumns = resolveDisplayColumns(dataTable);
-
-      if (!displayColumns.length) {
-        throw new Error('エクスポート対象の列を取得できません。');
-      }
-
-      const lines = [];
-
-      if (!headerWritten) {
-        lines.push(
-          displayColumns
-            .map((columnInfo) =>
-              escapeDelimitedValue(
-                columnInfo.column.fieldName ||
-                  columnInfo.column.caption ||
-                  columnInfo.column.name ||
-                  columnInfo.fieldName,
-                delimiter
-              )
-            )
-            .join(delimiter)
-        );
-        headerWritten = true;
-      }
-
-      dataTable.data.forEach((row) => {
-        lines.push(
-          displayColumns
-            .map((columnInfo) =>
-              escapeDelimitedValue(
-                formatValue(row[columnInfo.cellIndex], columnInfo.fieldName),
-                delimiter
-              )
-            )
-            .join(delimiter)
-        );
-      });
-
-      exportedRows += dataTable.data.length;
-      parts.push(lines.join('\r\n') + '\r\n');
-    }
-
-    return {
-      parts,
-      rowCount: exportedRows
-    };
-  }
-
   function csvStatus(message) {
     $('csvStatus').textContent = message;
   }
@@ -1351,37 +1255,6 @@
     }
   }
 
-  async function copyTsv() {
-    if (exportInProgress) return;
-
-    if (
-      reader &&
-      reader.totalRowCount > CLIPBOARD_WARNING_ROWS &&
-      !window.confirm(
-        reader.totalRowCount.toLocaleString() +
-          ' 行あります。大量コピーはブラウザが不安定になる可能性があります。続行しますか？'
-      )
-    ) {
-      return;
-    }
-
-    setExportBusy(true);
-
-    try {
-      const result = await buildDelimitedExport('\t', false);
-      const text = result.parts.join('');
-
-      await writeClipboardText(text);
-
-      setMessage(
-        result.rowCount.toLocaleString() +
-          ' 行をクリップボードへコピーしました。'
-      );
-    } finally {
-      setExportBusy(false);
-    }
-  }
-
   function renderEmptyTable() {
     clearCellSelection();
     const table = $('dataTable');
@@ -1562,7 +1435,14 @@
     setBusy(true);
     setMessage('Viz Extension を初期化しています...', 'loading');
 
-    await tableau.extensions.initializeAsync();
+    // Tableau displays 'Format Extension' in the worksheet Marks card,
+    // rather than exposing settings to dashboard viewers.
+    await tableau.extensions.initializeAsync({
+      configure: function () {
+        if (exportInProgress) return;
+        openSettings();
+      }
+    });
 
     worksheet =
       tableau.extensions.worksheetContent &&
@@ -1847,11 +1727,6 @@
     cancelCsvExport().catch(showError);
   });
 
-  $('copyTsv').addEventListener('click', function () {
-    copyTsv().catch(showError);
-  });
-
-  $('openSettings').addEventListener('click', openSettings);
   $('closeSettings').addEventListener('click', closeSettings);
   $('cancelSettings').addEventListener('click', closeSettings);
   $('applySettings').addEventListener('click', function () {

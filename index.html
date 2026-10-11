@@ -9,12 +9,20 @@
 <body>
   <div class="app">
     <header class="toolbar">
-      <div class="title">Data Viewer</div>
-      <div class="spacer"></div>
-      <button id="exportCsv" class="button" disabled>CSV</button>
-      <button id="copyTsv" class="button" disabled>コピー</button>
-      <button id="openSettings" class="button">設定</button>
-      <button id="refreshData" class="button">再読み込み</button>
+      <div class="toolbar-main">
+        <div class="title">Data Viewer</div>
+        <div class="spacer"></div>
+        <button id="exportCsv" class="button" disabled>CSV</button>
+        <button id="refreshData" class="button">再読み込み</button>
+      </div>
+      <div class="toolbar-paging">
+        <div id="status" class="toolbar-status">-</div>
+        <nav class="pager" aria-label="ページ移動">
+          <button id="prev" class="button">前へ</button>
+          <span id="page" aria-live="polite">-</span>
+          <button id="next" class="button">次へ</button>
+        </nav>
+      </div>
     </header>
 
     <main class="main">
@@ -69,15 +77,6 @@
       <button id="copyCell" class="cell-menu-action" type="button" role="menuitem">選択したセルをコピー</button>
     </div>
 
-    <footer class="footer">
-      <div id="status">-</div>
-
-      <div class="pager">
-        <button id="prev" class="button">前へ</button>
-        <span id="page">-</span>
-        <button id="next" class="button">次へ</button>
-      </div>
-    </footer>
   </div>
 
   <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
