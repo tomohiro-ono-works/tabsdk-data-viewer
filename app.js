@@ -957,30 +957,71 @@
           chunks.push(s.header);
           bytes += new Blob([s.header]).size;
         }
-        const rows = page.data.length;
-        if (count + rows > CSV_MAX_ROWS) {
-          throw new Error('ページ境界がCSV分割行数を超えています。');
+        // A Reader page can be larger than the CSV file-size budget.
+        // Retain the unconsumed rows to start the next CSV part.
+        const offset = s.pendingOffset || 0;
+        const lines = page.data.slice(offset).map(row =>
+          columns.map(info =>
+            escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
+          ).join(',') + '\r\n'
+        );
+        if (!lines.length) {
+          s.pendingPage = null;
+          s.pendingOffset = 0;
+          s.nextPage++;
+          continue;
         }
-        const text = page.data.map(row => columns.map(info =>
-          escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
-        ).join(',')).join('\r\n') + (rows ? '\r\n' : '');
-        const pageBytes = new Blob([text]).size;
-        if (bytes + pageBytes > CSV_MAX_BYTES && count > 0) {
+
+        const spaceBytes = CSV_MAX_BYTES - bytes;
+        const rowLimit = CSV_MAX_ROWS - count;
+        let acceptedRows = Math.min(lines.length, rowLimit);
+        let text = lines.slice(0, acceptedRows).join('');
+        let acceptedBytes = new Blob([text]).size;
+
+        if (acceptedBytes > spaceBytes) {
+          // Binary search is only needed when the file-size budget is hit.
+          let low = 0;
+          let high = acceptedRows;
+          while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            const sample = lines.slice(0, middle).join('');
+            if (new Blob([sample]).size <= spaceBytes) {
+              low = middle;
+            } else {
+              high = middle - 1;
+            }
+          }
+          acceptedRows = low;
+          text = lines.slice(0, acceptedRows).join('');
+          acceptedBytes = new Blob([text]).size;
+        }
+
+        if (acceptedRows === 0) {
+          if (count === 0) {
+            throw new Error('CSVの単一行が32MiBを超えるため分割できません。');
+          }
           s.pendingPage = page;
+          s.pendingOffset = offset;
           break;
         }
-        if (bytes + pageBytes > CSV_MAX_BYTES) {
-          throw new Error('取得1ページで32MiBを超過しました。ページサイズの再調整が必要です。');
-        }
+
         chunks.push(text);
-        bytes += pageBytes;
-        count += rows;
-        s.processed += rows;
-        s.nextPage++;
-        s.pendingPage = null;
+        bytes += acceptedBytes;
+        count += acceptedRows;
+        s.processed += acceptedRows;
+        const nextOffset = offset + acceptedRows;
+        if (nextOffset < page.data.length) {
+          s.pendingPage = page;
+          s.pendingOffset = nextOffset;
+        } else {
+          s.pendingPage = null;
+          s.pendingOffset = 0;
+          s.nextPage++;
+        }
+
         csvStatus(s.processed.toLocaleString() + ' / ' +
           s.totalRows.toLocaleString() + ' 行を取得中');
-        if (count === CSV_MAX_ROWS) break;
+        if (s.pendingPage || count >= CSV_MAX_ROWS) break;
       }
       checkCsvSession(s);
       if (!count) throw new Error('出力可能な行がありません。');
@@ -1028,6 +1069,7 @@
       s.ready = null;
     }
     s.pendingPage = null;
+    s.pendingOffset = 0;
     if (s.reader) {
       try { await s.reader.releaseAsync(); }
       catch (error) { console.warn('CSV reader release failed', error); }
@@ -1056,7 +1098,7 @@
     }
     const s = {
       reader: null, creating: true, cancelled: false, invalidated: false,
-      generation, nextPage: 0, pendingPage: null, processed: 0,
+      generation, nextPage: 0, pendingPage: null, pendingOffset: 0, processed: 0,
       totalRows: 0, part: 0, signature: null, header: null, ready: null,
       baseName: createExportFileName('csv').replace(/\.csv$/, '')
     };
