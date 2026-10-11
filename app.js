@@ -1767,12 +1767,9 @@
     if (event.key === 'Escape') hideCellMenu();
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
         selectionBounds() && !event.target.closest('input,textarea,select')) {
-      // Let the browser dispatch a trusted copy event when available.
-      // The copy handler synchronously fills clipboardData inside the iframe.
-      if (!document.queryCommandSupported?.('copy')) {
-        event.preventDefault();
-        copySelectedCell().catch(showError);
-      }
+      event.preventDefault();
+      // Trigger a synchronous native copy event while the keyboard gesture is active.
+      if (!document.execCommand('copy')) copySelectedCell().catch(showError);
     }
   });
 
