@@ -55,3 +55,12 @@ tbody tr:hover td.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.0
 tbody tr:hover td.cell-bar{background:#e8f0fe}
 
 .toolbar .button{white-space:nowrap}
+
+.app{position:relative}
+.csv-panel{position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(255,255,255,.97)}
+.csv-panel[hidden]{display:none}
+.csv-card{width:min(540px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px;border:1px solid var(--border);background:#fff}
+.csv-status{color:var(--text)}
+.csv-details{word-break:break-all;color:var(--muted);font-size:12px}
+.csv-actions{display:flex;gap:8px;flex-wrap:wrap}
+.csv-note{font-size:12px;color:var(--muted)}

@@ -20,13 +20,27 @@
     <main class="main">
       <div id="message" class="message">読み込み中...</div>
 
-      <div class="table-wrap">
+      <div id="tableWrap" class="table-wrap">
         <table id="dataTable">
           <thead></thead>
           <tbody></tbody>
         </table>
       </div>
     </main>
+
+    <section id="csvPanel" class="csv-panel" hidden>
+      <div class="csv-card">
+        <strong>CSV分割ダウンロード</strong>
+        <div id="csvStatus" class="csv-status" role="status"></div>
+        <div id="csvDetails" class="csv-details"></div>
+        <div class="csv-actions">
+          <button id="csvSavePart" class="button" disabled>このCSVを保存</button>
+          <button id="csvNextPart" class="button" disabled>次のファイルを作成</button>
+          <button id="csvFinish" class="button">中止</button>
+        </div>
+        <div class="csv-note">最大10万行または32MiBごとにCSVを分割します（5,000行単位）。保存を確認してから次へ進んでください。ファイル保存完了は自動検証できません。</div>
+      </div>
+    </section>
 
     <section id="settingsPanel" class="settings-panel" hidden>
       <div class="settings-card">

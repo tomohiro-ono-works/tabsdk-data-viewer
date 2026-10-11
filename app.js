@@ -13,6 +13,10 @@
   const MAX_COLUMN_WIDTH = 420;
   const COLUMN_HORIZONTAL_PADDING = 24;
   const CLIPBOARD_WARNING_ROWS = 20000;
+  const CSV_PAGE_SIZE = 5000;
+  const CSV_MAX_ROWS = 100000;
+  const CSV_MAX_BYTES = 32 * 1024 * 1024;
+  const CSV_PAGE_RETRIES = 3;
 
   let worksheet = null;
   let reader = null;
@@ -31,6 +35,7 @@
   let numericFieldNames = new Set();
   let textMeasureContext = null;
   let exportInProgress = false;
+  let csvSession = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -44,6 +49,7 @@
 
   function setBusy(busy) {
     $('refreshData').disabled = busy || exportInProgress;
+    $('openSettings').disabled = busy || exportInProgress;
     $('exportCsv').disabled = busy || exportInProgress || !reader;
     $('copyTsv').disabled = busy || exportInProgress || !reader;
     $('prev').disabled =
@@ -788,7 +794,8 @@
     anchor.click();
     anchor.remove();
 
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Avoid revoking the URL before the browser starts the download.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
   async function buildDelimitedExport(delimiter, includeBom) {
@@ -879,26 +886,234 @@
     };
   }
 
-  async function exportCsv() {
-    if (exportInProgress) return;
+  function csvStatus(message) {
+    $('csvStatus').textContent = message;
+  }
 
-    setExportBusy(true);
-
-    try {
-      const result = await buildDelimitedExport(',', true);
-      const blob = new Blob(result.parts, {
-        type: 'text/csv;charset=utf-8'
-      });
-
-      downloadBlob(blob, createExportFileName('csv'));
-
-      setMessage(
-        result.rowCount.toLocaleString() +
-          ' 行をCSVに出力しました。'
-      );
-    } finally {
-      setExportBusy(false);
+  function checkCsvSession(s) {
+    if (s !== csvSession || s.cancelled || s.invalidated ||
+        s.generation !== generation) {
+      throw new Error('データ変更または中止によりCSV出力を中断しました。最初から再実行してください。');
     }
+  }
+
+  async function getCsvPage(s, index) {
+    let lastError;
+    for (let attempt = 1; attempt <= CSV_PAGE_RETRIES; attempt++) {
+      checkCsvSession(s);
+      try {
+        const page = await s.reader.getPageAsync(index);
+        checkCsvSession(s);
+        return page;
+      } catch (error) {
+        checkCsvSession(s);
+        lastError = error;
+        if (attempt === CSV_PAGE_RETRIES) break;
+        csvStatus('ページ ' + (index + 1) + ' の取得を再試行しています（' + attempt + '回目）');
+        await new Promise(resolve => setTimeout(resolve, attempt * 500));
+      }
+    }
+    throw new Error('ページ ' + (index + 1) + ' の取得に失敗しました（' +
+      CSV_PAGE_RETRIES + '回）。' +
+      (lastError && lastError.message ? lastError.message : ''));
+  }
+
+  function csvColumnHeader(columns) {
+    return columns.map(info => escapeDelimitedValue(
+      info.column.fieldName || info.column.caption ||
+      info.column.name || info.fieldName, ','
+    )).join(',') + '\r\n';
+  }
+
+  async function buildNextCsvPart(s) {
+    checkCsvSession(s);
+    s.creating = true;
+    s.ready = null;
+    $('csvSavePart').disabled = true;
+    $('csvNextPart').disabled = true;
+    $('csvFinish').textContent = '中止';
+
+    const chunks = ['\uFEFF'];
+    let bytes = 3;
+    let count = 0;
+    const fromRow = s.processed + 1;
+    try {
+      while (s.nextPage < s.reader.pageCount || s.pendingPage) {
+        checkCsvSession(s);
+        const page = s.pendingPage || await getCsvPage(s, s.nextPage);
+        checkCsvSession(s);
+        const columns = resolveDisplayColumns(page);
+        if (!columns.length) throw new Error('CSV列を取得できません。');
+        const signature = columns.map(info =>
+          info.fieldName + ':' + info.cellIndex).join('\u001f');
+        if (s.signature && signature !== s.signature) {
+          throw new Error('出力中にCSVの列構成が変わりました。');
+        }
+        if (!s.signature) {
+          s.signature = signature;
+          s.header = csvColumnHeader(columns);
+        }
+        if (chunks.length === 1) {
+          chunks.push(s.header);
+          bytes += new Blob([s.header]).size;
+        }
+        const rows = page.data.length;
+        if (count + rows > CSV_MAX_ROWS) {
+          throw new Error('ページ境界がCSV分割行数を超えています。');
+        }
+        const text = page.data.map(row => columns.map(info =>
+          escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
+        ).join(',')).join('\r\n') + (rows ? '\r\n' : '');
+        const pageBytes = new Blob([text]).size;
+        if (bytes + pageBytes > CSV_MAX_BYTES && count > 0) {
+          s.pendingPage = page;
+          break;
+        }
+        if (bytes + pageBytes > CSV_MAX_BYTES) {
+          throw new Error('取得1ページで32MiBを超過しました。ページサイズの再調整が必要です。');
+        }
+        chunks.push(text);
+        bytes += pageBytes;
+        count += rows;
+        s.processed += rows;
+        s.nextPage++;
+        s.pendingPage = null;
+        csvStatus(s.processed.toLocaleString() + ' / ' +
+          s.totalRows.toLocaleString() + ' 行を取得中');
+        if (count === CSV_MAX_ROWS) break;
+      }
+      checkCsvSession(s);
+      if (!count) throw new Error('出力可能な行がありません。');
+      const finished = s.nextPage === s.reader.pageCount && !s.pendingPage;
+      if (s.processed > s.totalRows || (finished && s.processed !== s.totalRows)) {
+        throw new Error('取得したCSVの行数がTableauの総件数と一致しません。');
+      }
+      const blob = new Blob(chunks, { type: 'text/csv;charset=utf-8' });
+      s.part++;
+      const fileName = s.baseName + '-part-' +
+        String(s.part).padStart(3, '0') + '.csv';
+      s.ready = {
+        blob, fileName, fromRow, toRow: s.processed, saved: false
+      };
+      $('csvDetails').textContent = fileName + '（' +
+        fromRow.toLocaleString() + '～' + s.processed.toLocaleString() +
+        ' 行、' + (blob.size / 1024 / 1024).toFixed(1) + ' MiB）';
+      csvStatus('CSVを生成しました。保存ボタンを押してください。');
+      $('csvSavePart').disabled = false;
+    } finally {
+      s.creating = false;
+    }
+  }
+
+  function saveCsvPart() {
+    const s = csvSession;
+    if (!s || s.creating || s.cancelled || s.invalidated || !s.ready) return;
+    // Invoke directly within the user's click to retain user activation.
+    downloadBlob(s.ready.blob, s.ready.fileName);
+    s.ready.saved = true;
+    const last = s.nextPage === s.reader.pageCount && !s.pendingPage;
+    $('csvNextPart').disabled = last;
+    $('csvFinish').textContent = last ? '完了して閉じる' : '中止';
+    csvStatus('保存を開始しました。ブラウザで確認後、' +
+      (last ? '「完了して閉じる」' : '「次のファイルを作成」') +
+      'を押してください。同じファイルを再保存することもできます。');
+  }
+
+  async function closeCsvExport(message) {
+    const s = csvSession;
+    if (!s) return;
+    csvSession = null;
+    if (s.ready) {
+      s.ready.blob = null;
+      s.ready = null;
+    }
+    s.pendingPage = null;
+    if (s.reader) {
+      try { await s.reader.releaseAsync(); }
+      catch (error) { console.warn('CSV reader release failed', error); }
+    }
+    exportInProgress = false;
+    $('csvPanel').hidden = true;
+    $('tableWrap').hidden = false;
+    await refreshData('manual');
+    if (message) setMessage(message);
+  }
+
+  async function onCsvFailure(error) {
+    const cancelled = !!(csvSession && csvSession.cancelled);
+    try { await closeCsvExport(); }
+    catch (restoreError) { console.error('Restore failed', restoreError); }
+    if (cancelled) setMessage('CSV出力を中止しました。');
+    else showError(error);
+  }
+
+  async function startCsvExport() {
+    if (exportInProgress || !reader) return;
+    exportInProgress = true;
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    const s = {
+      reader: null, creating: true, cancelled: false, invalidated: false,
+      generation, nextPage: 0, pendingPage: null, processed: 0,
+      totalRows: 0, part: 0, signature: null, header: null, ready: null,
+      baseName: createExportFileName('csv').replace(/\.csv$/, '')
+    };
+    csvSession = s;
+    setBusy(true);
+    $('csvPanel').hidden = false;
+    $('tableWrap').hidden = true;
+    $('csvSavePart').disabled = true;
+    $('csvNextPart').disabled = true;
+    $('csvFinish').disabled = false;
+    $('csvFinish').textContent = '中止';
+    $('csvDetails').textContent = '';
+    csvStatus('CSV出力用Readerを準備中...');
+    try {
+      await releaseReader();
+      checkCsvSession(s);
+      renderEmptyTable();
+      s.reader = await worksheet.getSummaryDataReaderAsync(
+        CSV_PAGE_SIZE, { ignoreSelection: true });
+      checkCsvSession(s);
+      s.totalRows = s.reader.totalRowCount;
+      if (!s.totalRows) throw new Error('出力対象の行がありません。');
+      await buildNextCsvPart(s);
+    } catch (error) {
+      await onCsvFailure(error);
+    }
+  }
+
+  async function nextCsvPart() {
+    const s = csvSession;
+    if (!s || s.creating || !s.ready || !s.ready.saved) return;
+    s.ready.blob = null;
+    s.ready = null;
+    $('csvDetails').textContent = '';
+    csvStatus('次のCSVを生成しています...');
+    try { await buildNextCsvPart(s); }
+    catch (error) { await onCsvFailure(error); }
+  }
+
+  async function cancelCsvExport() {
+    const s = csvSession;
+    if (!s) return;
+    const last = !!(s.ready && s.ready.saved &&
+      s.nextPage === s.reader.pageCount && !s.pendingPage);
+    if (last) {
+      await closeCsvExport('CSV出力を終了しました。');
+      return;
+    }
+    s.cancelled = true;
+    $('csvSavePart').disabled = true;
+    $('csvNextPart').disabled = true;
+    $('csvFinish').disabled = true;
+    if (s.creating) {
+      csvStatus('中止処理中...');
+      return;
+    }
+    await closeCsvExport('CSV出力を中止しました。');
   }
 
   async function writeClipboardText(text) {
@@ -1114,6 +1329,18 @@
   }
 
   function scheduleRefresh(reason) {
+    if (exportInProgress) {
+      if (csvSession) {
+        csvSession.invalidated = true;
+        csvStatus('Tableauのデータ変更を検知しました。CSV出力を中止します。');
+        $('csvSavePart').disabled = true;
+        $('csvNextPart').disabled = true;
+        if (!csvSession.creating) {
+          closeCsvExport('データ変更のためCSV出力を中止しました。').catch(showError);
+        }
+      }
+      return;
+    }
     pendingRefreshReason = reason || 'summary-data-changed';
 
     if (refreshTimer) {
@@ -1344,7 +1571,14 @@
   });
 
   $('exportCsv').addEventListener('click', function () {
-    exportCsv().catch(showError);
+    startCsvExport().catch(onCsvFailure);
+  });
+  $('csvSavePart').addEventListener('click', saveCsvPart);
+  $('csvNextPart').addEventListener('click', function () {
+    nextCsvPart().catch(onCsvFailure);
+  });
+  $('csvFinish').addEventListener('click', function () {
+    cancelCsvExport().catch(showError);
   });
 
   $('copyTsv').addEventListener('click', function () {
@@ -1374,6 +1608,9 @@
 
     if (reader) {
       reader.releaseAsync().catch(function () {});
+    }
+    if (csvSession && csvSession.reader) {
+      csvSession.reader.releaseAsync().catch(function () {});
     }
   });
 
