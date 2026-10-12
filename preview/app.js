@@ -777,6 +777,14 @@
         td.setAttribute('aria-selected', String(on));
       }
     }
+    let indicator = $('selectionIndicator');
+    if (!indicator) {
+      indicator = document.createElement('span');
+      indicator.id = 'selectionIndicator';
+      indicator.style.cssText = 'font-size:12px;font-weight:600;color:#174ea6;white-space:nowrap';
+      $('page').parentElement.appendChild(indicator);
+    }
+    indicator.textContent = b ? ((b.bottom-b.top+1) + '行 × ' + (b.right-b.left+1) + '列 選択中') : '';
   }
 
   function clearCellSelection() {
@@ -820,8 +828,13 @@
     }
     const text = selectedText();
     hideCellMenu();
-    await writeClipboardText(text);
-    setMessage('選択範囲をコピーしました。');
+    try {
+      await writeClipboardText(text);
+      setMessage('選択範囲をコピーしました。');
+    } catch (error) {
+      console.warn('Clipboard write blocked:', error);
+      showManualCopy(text);
+    }
   }
 
   function renderTable(dataTable) {
@@ -1277,6 +1290,33 @@
       return;
     }
     await closeCsvExport('CSV出力を中止しました。');
+  }
+
+  function showManualCopy(text) {
+    let panel = $('manualCopyPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'manualCopyPanel';
+      panel.style.cssText = 'position:absolute;inset:8px;z-index:80;background:white;border:2px solid #1a73e8;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 3px 14px #0003';
+      const title = document.createElement('strong');
+      title.textContent = '自動コピーが制限されています。下の文字列をCtrl+Cでコピーしてください。';
+      const area = document.createElement('textarea');
+      area.id = 'manualCopyText';
+      area.readOnly = true;
+      area.style.cssText = 'width:100%;min-height:100px;flex:1;font:12px monospace;user-select:text';
+      const close = document.createElement('button');
+      close.textContent = '閉じる';
+      close.className = 'button';
+      close.addEventListener('click', () => { panel.hidden = true; });
+      panel.append(title, area, close);
+      $('.app')?.appendChild(panel);
+    }
+    panel.hidden = false;
+    const area = $('manualCopyText');
+    area.value = text;
+    area.focus();
+    area.select();
+    setMessage('クリップボードへの自動コピーができませんでした。', 'error');
   }
 
   async function writeClipboardText(text) {
@@ -1768,8 +1808,7 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
         selectionBounds() && !event.target.closest('input,textarea,select')) {
       event.preventDefault();
-      // Trigger a synchronous native copy event while the keyboard gesture is active.
-      if (!document.execCommand('copy')) copySelectedCell().catch(showError);
+      copySelectedCell().catch(showError);
     }
   });
 
