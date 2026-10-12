@@ -803,6 +803,7 @@
     selectionFocus = pos;
     selectedCell = td;
     paintSelection();
+    diagnoseCopy('範囲選択', ((Math.abs(selectionFocus.row-selectionAnchor.row)+1) + '行×' + (Math.abs(selectionFocus.col-selectionAnchor.col)+1) + '列'));
     if (typeof td.focus === 'function') td.focus({ preventScroll: true });
   }
 
@@ -821,17 +822,56 @@
     return output.join('\r\n');
   }
 
+  const copyDiagnostics = [];
+  function diagnoseCopy(stage, detail = '') {
+    const entry = new Date().toLocaleTimeString('ja-JP') + ' | ' + stage + (detail ? ' | ' + detail : '');
+    copyDiagnostics.push(entry);
+    if (copyDiagnostics.length > 20) copyDiagnostics.shift();
+    let panel = $('copyDiagnostics');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'copyDiagnostics';
+      panel.style.cssText = 'position:absolute;right:8px;bottom:8px;z-index:70;width:min(520px,calc(100% - 16px));max-height:45%;background:#fff;border:2px solid #174ea6;padding:8px;display:flex;flex-direction:column;gap:5px;box-shadow:0 4px 18px #0004';
+      const bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
+      const heading = document.createElement('strong');
+      heading.textContent = 'クリップボード診断（preview専用）';
+      const btn = document.createElement('button');
+      btn.className = 'button';
+      btn.textContent = '閉じる';
+      btn.addEventListener('click', () => panel.hidden = true);
+      bar.append(heading, btn);
+      const output = document.createElement('pre');
+      output.id = 'copyDiagnosticLog';
+      output.style.cssText = 'overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0';
+      panel.append(bar, output);
+      $('.app').appendChild(panel);
+    }
+    panel.hidden = false;
+    $('copyDiagnosticLog').textContent = copyDiagnostics.join('\n');
+  }
+  function copyEnvironment() {
+    const policy = document.permissionsPolicy || document.featurePolicy;
+    let allowed = 'unknown';
+    try { if (policy?.allowsFeature) allowed = String(policy.allowsFeature('clipboard-write')); } catch (e) { allowed = e.name; }
+    return 'secure=' + isSecureContext + ', focus=' + document.hasFocus() +
+      ', clipboardAPI=' + !!navigator.clipboard?.writeText + ', policy=' + allowed;
+  }
+
   async function copySelectedCell() {
     if (!selectionBounds()) {
       hideCellMenu();
       return;
     }
     const text = selectedText();
+    diagnoseCopy('copySelectedCell開始', '文字数=' + text.length + ', ' + copyEnvironment());
     hideCellMenu();
     try {
       await writeClipboardText(text);
+      diagnoseCopy('writeClipboardText完了（実貼付は未確認）');
       setMessage('選択範囲をコピーしました。');
     } catch (error) {
+      diagnoseCopy('コピー失敗', error.name + ': ' + error.message);
       console.warn('Clipboard write blocked:', error);
       showManualCopy(text);
     }
@@ -1325,9 +1365,12 @@
       typeof navigator.clipboard.writeText === 'function'
     ) {
       try {
+        diagnoseCopy('navigator.clipboard.writeText 呼出');
         await navigator.clipboard.writeText(text);
+        diagnoseCopy('navigator.clipboard.writeText 成功');
         return;
       } catch (error) {
+        diagnoseCopy('navigator.clipboard.writeText 失敗', error.name + ': ' + error.message);
         console.warn(
           'navigator.clipboard.writeText failed; using fallback.',
           error
@@ -1335,6 +1378,7 @@
       }
     }
 
+    diagnoseCopy('execCommand fallback開始', copyEnvironment());
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.style.position = 'fixed';
@@ -1345,6 +1389,7 @@
     textarea.select();
 
     const copied = document.execCommand('copy');
+    diagnoseCopy('execCommand(copy) 結果', String(copied));
     textarea.remove();
 
     if (!copied) {
@@ -1796,6 +1841,7 @@
   });
 
   $('copyCell').addEventListener('click', () => {
+    diagnoseCopy('右クリックメニュー選択', copyEnvironment());
     copySelectedCell().catch(showError);
   });
 
@@ -1805,6 +1851,7 @@
 
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') hideCellMenu();
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') diagnoseCopy('Ctrl+C keydown', '選択=' + !!selectionBounds() + ', target=' + event.target.tagName + ', ' + copyEnvironment());
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
         selectionBounds() && !event.target.closest('input,textarea,select')) {
       event.preventDefault();
@@ -1813,6 +1860,7 @@
   });
 
   document.addEventListener('copy', event => {
+    diagnoseCopy('copyイベント', 'clipboardData=' + !!event.clipboardData + ', target=' + event.target.tagName);
     if (!selectionBounds() || event.target.closest?.('input,textarea,select')) return;
     if (!event.clipboardData) return;
     event.clipboardData.setData('text/plain', selectedText());
