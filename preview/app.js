@@ -902,22 +902,18 @@
     }
   }
 
-  async function copySelectedCell() {
-    if (!selectionBounds()) {
-      hideCellMenu();
-      return;
-    }
-    const text = selectedText();
-    diagnoseCopy('copySelectedCell開始', '文字数=' + text.length + ', ' + copyEnvironment());
+  function copySelectedCell() {
+    if (!selectionBounds()) { hideCellMenu(); return; }
+    const value = selectedText();
     hideCellMenu();
+    diagnoseCopy('選択範囲コピー開始', '文字数=' + value.length);
     try {
-      await writeClipboardText(text);
-      diagnoseCopy('writeClipboardText完了（実貼付は未確認）');
-      setMessage('選択範囲をコピーしました。');
+      writeClipboardText(value);
+      diagnoseCopy('選択範囲コピー完了', 'API戻り値は成功。実際の貼付を確認してください');
+      setMessage('コピー操作を実行しました。貼り付け先で確認してください。');
     } catch (error) {
-      diagnoseCopy('コピー失敗', error.name + ': ' + error.message);
-      console.warn('Clipboard write blocked:', error);
-      showManualCopy(text);
+      diagnoseCopy('選択範囲コピー失敗', error.name + ': ' + error.message);
+      setMessage('コピー失敗: ' + error.message, 'error');
     }
   }
 
@@ -1376,79 +1372,22 @@
     await closeCsvExport('CSV出力を中止しました。');
   }
 
-  function showManualCopy(text) {
-    let panel = $('manualCopyPanel');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'manualCopyPanel';
-      panel.style.cssText = 'position:absolute;inset:8px;z-index:80;background:white;border:2px solid #1a73e8;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 3px 14px #0003';
-      const title = document.createElement('strong');
-      title.textContent = '自動コピーが制限されています。下の文字列をCtrl+Cでコピーしてください。';
-      const area = document.createElement('textarea');
-      area.id = 'manualCopyText';
-      area.readOnly = true;
-      area.style.cssText = 'width:100%;min-height:100px;flex:1;font:12px monospace;user-select:text';
-      const close = document.createElement('button');
-      close.textContent = '閉じる';
-      close.className = 'button';
-      close.addEventListener('click', () => { panel.hidden = true; });
-      panel.append(title, area, close);
-      document.querySelector('.app')?.appendChild(panel);
-    }
-    panel.hidden = false;
-    const area = $('manualCopyText');
-    area.value = text;
-    area.focus();
-    area.select();
-    setMessage('クリップボードへの自動コピーができませんでした。', 'error');
-  }
-
-  async function writeClipboardText(text) {
-    if (
-      navigator.clipboard &&
-      typeof navigator.clipboard.writeText === 'function'
-    ) {
-      try {
-        diagnoseCopy('navigator.clipboard.writeText 呼出');
-        let settled = false;
-        const promise = navigator.clipboard.writeText(text);
-        setTimeout(() => {
-          if (!settled) diagnoseCopy('writeText が3秒経過しても未完了', copyEnvironment());
-        }, 3000);
-        try {
-          await promise;
-          settled = true;
-        } catch (error) {
-          settled = true;
-          throw error;
-        }
-        diagnoseCopy('navigator.clipboard.writeText 成功');
-        return;
-      } catch (error) {
-        diagnoseCopy('navigator.clipboard.writeText 失敗', error.name + ': ' + error.message);
-        console.warn(
-          'navigator.clipboard.writeText failed; using fallback.',
-          error
-        );
-      }
-    }
-
-    diagnoseCopy('execCommand fallback開始', copyEnvironment());
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.top = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-
-    const copied = document.execCommand('copy');
-    diagnoseCopy('execCommand(copy) 結果', String(copied));
-    textarea.remove();
-
-    if (!copied) {
-      throw new Error('クリップボードへのコピーに失敗しました。');
+  function writeClipboardText(value) {
+    // Tableau Public Desktop: tested execCommand(copy) succeeds.
+    // Do not invoke navigator.clipboard.writeText; its promise stays pending.
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.style.cssText = 'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
+    document.body.appendChild(area);
+    try {
+      area.focus();
+      area.select();
+      diagnoseCopy('execCommand 開始', 'textareaFocus=' + (document.activeElement === area));
+      const copied = document.execCommand('copy');
+      diagnoseCopy('execCommand 戻り値', String(copied));
+      if (!copied) throw new Error('execCommand(copy) は false を返しました');
+    } finally {
+      area.remove();
     }
   }
 
@@ -1869,9 +1808,17 @@
         ', defaultPrevented=' + event.defaultPrevented + ', ' + copyEnvironment());
     }
   }, true);
+  let copyExecutedOnKeydown = false;
   window.addEventListener('keyup', event => {
-    if (event.key.toLowerCase() === 'c') {
-      diagnoseCopy('window keyup capture C', 'ctrl=' + event.ctrlKey);
+    if (event.key.toLowerCase() !== 'c') return;
+    diagnoseCopy('window keyup capture C',
+      'ctrl=' + event.ctrlKey + ', alreadyHandled=' + copyExecutedOnKeydown);
+    const shouldCopy = (event.ctrlKey || event.metaKey) && selectionBounds() &&
+      !event.target.closest?.('input,textarea,select') && !copyExecutedOnKeydown;
+    copyExecutedOnKeydown = false;
+    if (shouldCopy) {
+      diagnoseCopy('Ctrl+C keyupからコピー', copyEnvironment());
+      copySelectedCell();
     }
   }, true);
   $('showCopyDiagnostics')?.addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
@@ -1911,7 +1858,7 @@
 
   $('copyCell').addEventListener('click', () => {
     diagnoseCopy('右クリックメニュー選択', copyEnvironment());
-    copySelectedCell().catch(showError);
+    copySelectedCell();
   });
 
   document.addEventListener('pointerdown', event => {
@@ -1922,9 +1869,10 @@
     if (event.key === 'Escape') hideCellMenu();
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') diagnoseCopy('Ctrl+C keydown', '選択=' + !!selectionBounds() + ', target=' + event.target.tagName + ', ' + copyEnvironment());
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
-        selectionBounds() && !event.target.closest('input,textarea,select')) {
+        selectionBounds() && !event.target.closest?.('input,textarea,select')) {
       event.preventDefault();
-      copySelectedCell().catch(showError);
+      copyExecutedOnKeydown = true;
+      copySelectedCell();
     }
   });
 
