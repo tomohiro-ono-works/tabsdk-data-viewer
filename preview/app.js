@@ -845,7 +845,7 @@
       output.id = 'copyDiagnosticLog';
       output.style.cssText = 'overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0';
       panel.append(bar, output);
-      $('.app').appendChild(panel);
+      document.querySelector('.app').appendChild(panel);
     }
     panel.hidden = false;
     $('copyDiagnosticLog').textContent = copyDiagnostics.join('\n');
@@ -1349,7 +1349,7 @@
       close.className = 'button';
       close.addEventListener('click', () => { panel.hidden = true; });
       panel.append(title, area, close);
-      $('.app')?.appendChild(panel);
+      document.querySelector('.app')?.appendChild(panel);
     }
     panel.hidden = false;
     const area = $('manualCopyText');
