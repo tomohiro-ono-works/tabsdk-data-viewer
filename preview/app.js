@@ -1874,7 +1874,7 @@
       diagnoseCopy('window keyup capture C', 'ctrl=' + event.ctrlKey);
     }
   }, true);
-  $('showCopyDiagnostics').addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
+  $('showCopyDiagnostics')?.addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
   diagnoseCopy('診断スクリプト起動', copyEnvironment());
 
   const dataTableElement = $('dataTable');
