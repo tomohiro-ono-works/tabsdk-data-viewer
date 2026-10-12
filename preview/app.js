@@ -826,7 +826,7 @@
   function diagnoseCopy(stage, detail = '') {
     const entry = new Date().toLocaleTimeString('ja-JP') + ' | ' + stage + (detail ? ' | ' + detail : '');
     copyDiagnostics.push(entry);
-    if (copyDiagnostics.length > 20) copyDiagnostics.shift();
+    if (copyDiagnostics.length > 150) copyDiagnostics.shift();
     let panel = $('copyDiagnostics');
     if (!panel) {
       panel = document.createElement('div');
@@ -836,11 +836,21 @@
       bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
       const heading = document.createElement('strong');
       heading.textContent = 'クリップボード診断（preview専用）';
+      const test = document.createElement('button');
+      test.className = 'button';
+      test.textContent = '旧方式テスト';
+      test.addEventListener('click', probeLegacyCopy);
+      const save = document.createElement('button');
+      save.className = 'button';
+      save.textContent = 'ログ保存';
+      save.addEventListener('click', downloadCopyDiagnostics);
       const btn = document.createElement('button');
       btn.className = 'button';
       btn.textContent = '閉じる';
       btn.addEventListener('click', () => panel.hidden = true);
-      bar.append(heading, btn);
+      bar.style.flexWrap = 'wrap';
+      bar.style.gap = '4px';
+      bar.append(heading, test, save, btn);
       const output = document.createElement('pre');
       output.id = 'copyDiagnosticLog';
       output.style.cssText = 'overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0';
@@ -856,6 +866,40 @@
     try { if (policy?.allowsFeature) allowed = String(policy.allowsFeature('clipboard-write')); } catch (e) { allowed = e.name; }
     return 'secure=' + isSecureContext + ', focus=' + document.hasFocus() +
       ', clipboardAPI=' + !!navigator.clipboard?.writeText + ', policy=' + allowed;
+  }
+
+  function downloadCopyDiagnostics() {
+    const blob = new Blob(['\uFEFF', copyDiagnostics.join('\r\n'), '\r\n'],
+      { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tableau-clipboard-diagnostic.txt';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    diagnoseCopy('ログ保存操作', 'ダウンロード開始');
+  }
+
+  function probeLegacyCopy() {
+    diagnoseCopy('旧方式テスト開始', copyEnvironment());
+    const area = document.createElement('textarea');
+    area.value = 'TABLEAU_COPY_TEST_20261013';
+    area.style.cssText = 'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    diagnoseCopy('textareaフォーカス', String(document.activeElement === area));
+    try {
+      const result = document.execCommand('copy');
+      diagnoseCopy('旧方式 execCommand(copy) 戻り値', String(result) +
+        '（実際に貼り付けられるか別途確認が必要）');
+    } catch (error) {
+      diagnoseCopy('旧方式例外', error.name + ': ' + error.message);
+    } finally {
+      area.remove();
+    }
   }
 
   async function copySelectedCell() {
@@ -1366,7 +1410,18 @@
     ) {
       try {
         diagnoseCopy('navigator.clipboard.writeText 呼出');
-        await navigator.clipboard.writeText(text);
+        let settled = false;
+        const promise = navigator.clipboard.writeText(text);
+        setTimeout(() => {
+          if (!settled) diagnoseCopy('writeText が3秒経過しても未完了', copyEnvironment());
+        }, 3000);
+        try {
+          await promise;
+          settled = true;
+        } catch (error) {
+          settled = true;
+          throw error;
+        }
         diagnoseCopy('navigator.clipboard.writeText 成功');
         return;
       } catch (error) {
@@ -1808,6 +1863,17 @@
     setBusy(false);
   }
 
+  window.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+      diagnoseCopy('window keydown capture Ctrl+C', 'target=' + event.target.tagName +
+        ', defaultPrevented=' + event.defaultPrevented + ', ' + copyEnvironment());
+    }
+  }, true);
+  window.addEventListener('keyup', event => {
+    if (event.key.toLowerCase() === 'c') {
+      diagnoseCopy('window keyup capture C', 'ctrl=' + event.ctrlKey);
+    }
+  }, true);
   $('showCopyDiagnostics').addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
   diagnoseCopy('診断スクリプト起動', copyEnvironment());
 
