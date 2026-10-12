@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tabsdk-data-viewer</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <div class="toolbar-main">
+        <div class="title">Data Viewer</div>
+        <div class="spacer"></div>
+        <button id="exportCsv" class="button" disabled>CSV</button>
+        <button id="refreshData" class="button">再読み込み</button>
+      </div>
+      <div class="toolbar-paging">
+        <div id="status" class="toolbar-status">-</div>
+        <nav class="pager" aria-label="ページ移動">
+          <button id="prev" class="button">前へ</button>
+          <span id="page" aria-live="polite">-</span>
+          <button id="next" class="button">次へ</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="message" class="message">読み込み中...</div>
+
+      <div id="tableWrap" class="table-wrap">
+        <table id="dataTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+
+    <section id="csvPanel" class="csv-panel" hidden>
+      <div class="csv-card">
+        <strong>CSV分割ダウンロード</strong>
+        <div id="csvStatus" class="csv-status" role="status"></div>
+        <div id="csvDetails" class="csv-details"></div>
+        <div class="csv-actions">
+          <button id="csvSavePart" class="button" disabled>このCSVを保存</button>
+          <button id="csvNextPart" class="button" disabled>次のファイルを作成</button>
+          <button id="csvFinish" class="button">中止</button>
+        </div>
+        <div class="csv-note">最大10万行または32MiBごとにCSVを分割します（Tableauからの取得は5,000行単位）。保存を確認してから次へ進んでください。ファイル保存完了は自動検証できません。</div>
+      </div>
+    </section>
+
+    <section id="settingsPanel" class="settings-panel" hidden>
+      <div class="settings-card">
+        <div class="settings-header">
+          <strong>列設定</strong>
+          <button id="closeSettings" class="button">閉じる</button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field">
+            <span>左から固定する列数</span>
+            <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
+          </label>
+          <div class="settings-help">0で固定なし。列順はTableauの「表示列」の順序を使用します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値と色を指定できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
+          <div id="settingsError" class="settings-error" role="alert" hidden></div>
+          <div id="columnSettingsList" class="column-settings-list"></div>
+        </div>
+        <div class="settings-footer">
+          <div class="spacer"></div>
+          <button id="cancelSettings" class="button">キャンセル</button>
+          <button id="applySettings" class="button">適用</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="cellMenu" class="cell-menu" role="menu" hidden>
+      <button id="copyCell" class="cell-menu-action" type="button" role="menuitem">選択したセルをコピー</button>
+    </div>
+
+  </div>
+
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
