@@ -1808,6 +1808,9 @@
     setBusy(false);
   }
 
+  $('showCopyDiagnostics').addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
+  diagnoseCopy('診断スクリプト起動', copyEnvironment());
+
   const dataTableElement = $('dataTable');
   dataTableElement.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
