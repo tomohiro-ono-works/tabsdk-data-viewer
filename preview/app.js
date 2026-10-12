@@ -840,6 +840,10 @@
       test.className = 'button';
       test.textContent = '旧方式テスト';
       test.addEventListener('click', probeLegacyCopy);
+      const keyboard = document.createElement('button');
+      keyboard.className = 'button';
+      keyboard.textContent = 'Ctrl+C入力欄テスト';
+      keyboard.addEventListener('click', probeNativeKeyboardCopy);
       const save = document.createElement('button');
       save.className = 'button';
       save.textContent = 'ログ保存';
@@ -850,7 +854,7 @@
       btn.addEventListener('click', () => panel.hidden = true);
       bar.style.flexWrap = 'wrap';
       bar.style.gap = '4px';
-      bar.append(heading, test, save, btn);
+      bar.append(heading, test, keyboard, save, btn);
       const output = document.createElement('pre');
       output.id = 'copyDiagnosticLog';
       output.style.cssText = 'overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0';
@@ -880,6 +884,26 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
     diagnoseCopy('ログ保存操作', 'ダウンロード開始');
+  }
+
+  function probeNativeKeyboardCopy() {
+    const panel = $('copyDiagnostics');
+    if (!panel) return;
+    let area = $('nativeCopyProbeText');
+    if (!area) {
+      area = document.createElement('textarea');
+      area.id = 'nativeCopyProbeText';
+      area.readOnly = true;
+      area.style.cssText = 'width:100%;height:55px;min-height:55px;user-select:text;-webkit-user-select:text;font-size:12px';
+      panel.appendChild(area);
+    }
+    area.value = 'TABLEAU_NATIVE_CTRL_C_TEST_20261013';
+    area.focus();
+    area.select();
+    diagnoseCopy('Ctrl+C入力欄テスト開始',
+      'textareaFocus=' + (document.activeElement === area) +
+      ', selection=' + (area.selectionEnd - area.selectionStart));
+    // Do not call any clipboard API: test whether Tableau forwards native Ctrl+C.
   }
 
   function probeLegacyCopy() {
