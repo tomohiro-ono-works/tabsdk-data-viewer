@@ -12,6 +12,11 @@
   const COLUMN_GRADIENTS_KEY = 'columnGradientsV1';
   const COLUMN_HEADER_LABELS_KEY = 'columnHeaderLabelsV1';
   const COLUMN_HEADER_GROUPS_KEY = 'columnHeaderGroupsV1';
+  const HEADER_COLORS_KEY = 'headerColorsV1';
+  const DEFAULT_HEADER_COLORS = {
+    upper: { background: '#f1f3f4', text: '#202124' },
+    lower: { background: '#f1f3f4', text: '#202124' }
+  };
   const DEFAULT_GRADIENT_COLORS = {
     low: '#e8f0fe',
     mid: '#90caf9',
@@ -45,6 +50,10 @@
   let columnGradients = {};
   let columnHeaderLabels = {};
   let columnHeaderGroups = {};
+  let headerColors = {
+    upper: {...DEFAULT_HEADER_COLORS.upper},
+    lower: {...DEFAULT_HEADER_COLORS.lower}
+  };
   let selectedCell = null;
   let selectionAnchor = null;
   let selectionFocus = null;
@@ -301,6 +310,12 @@
     return typeof group === 'string' ? group.trim() : '';
   }
 
+  function styleHeaderCell(th, level) {
+    const colors = headerColors[level] || DEFAULT_HEADER_COLORS[level];
+    th.style.backgroundColor = colors.background;
+    th.style.color = colors.text;
+  }
+
   function getAutoColumnWidth(columnInfo, dataTable) {
     let required = measureTextWidth(displayHeaderLabel(columnInfo));
 
@@ -413,6 +428,15 @@
       Object.entries(read(COLUMN_HEADER_GROUPS_KEY))
         .filter(([, value]) => typeof value === 'string')
     );
+    const savedColors = read(HEADER_COLORS_KEY);
+    headerColors = Object.fromEntries(['upper', 'lower'].map(level => [
+      level,
+      Object.fromEntries(['background', 'text'].map(key => {
+        const value = savedColors[level]?.[key];
+        return [key, validHex(value) ? value.toLowerCase() :
+          DEFAULT_HEADER_COLORS[level][key]];
+      }))
+    ]));
   }
 
   async function saveColumnPresentation() {
@@ -427,6 +451,9 @@
     );
     tableau.extensions.settings.set(
       COLUMN_HEADER_GROUPS_KEY, JSON.stringify(columnHeaderGroups)
+    );
+    tableau.extensions.settings.set(
+      HEADER_COLORS_KEY, JSON.stringify(headerColors)
     );
     await tableau.extensions.settings.saveAsync();
   }
@@ -852,6 +879,7 @@
       const th = document.createElement('th');
       th.dataset.startCol = String(index);
       th.dataset.endCol = String(index);
+      styleHeaderCell(th, 'lower');
       const label = document.createElement('span');
       label.className = 'column-header-label';
       label.textContent = displayHeaderLabel(columnInfo);
@@ -894,6 +922,7 @@
 
         const parent = document.createElement('th');
         parent.className = 'header-group-cell';
+        styleHeaderCell(parent, 'upper');
         parent.colSpan = end - index;
         parent.dataset.startCol = String(index);
         parent.dataset.endCol = String(end - 1);
@@ -1554,6 +1583,15 @@
       item.className = 'column-setting-item';
       item.dataset.fieldName = fieldName;
 
+      const source = document.createElement('div');
+      source.className = 'column-source-name';
+      const sourceTitle = document.createElement('span');
+      sourceTitle.textContent = '元の項目名';
+      const sourceValue = document.createElement('strong');
+      sourceValue.textContent = fieldName;
+      source.append(sourceTitle, sourceValue);
+      item.appendChild(source);
+
       const headerFields = document.createElement('div');
       headerFields.className = 'column-header-fields';
       const createTextField = (caption, cls, initial, placeholder) => {
@@ -1577,11 +1615,6 @@
       createTextField('項目名', 'column-header-label-input',
         draft.labels[fieldName] || fieldName, fieldName);
       item.appendChild(headerFields);
-
-      const source = document.createElement('div');
-      source.className = 'column-source-name';
-      source.textContent = '元のフィールド: ' + fieldName;
-      item.appendChild(source);
 
       const selectField = (caption,cssClass,options,chosen) => {
         const field = document.createElement('label');
@@ -1659,10 +1692,23 @@
       modes: {...columnDisplayModes},
       labels: {...columnHeaderLabels},
       groups: {...columnHeaderGroups},
+      colors: {
+        upper: {...headerColors.upper},
+        lower: {...headerColors.lower}
+      },
       gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
         [fieldName,gradientConfig(fieldName)]))
     };
     renderColumnSettings();
+    const colorIds = {
+      upper: {background: 'upperHeaderBackground', text: 'upperHeaderText'},
+      lower: {background: 'lowerHeaderBackground', text: 'lowerHeaderText'}
+    };
+    for (const level of ['upper', 'lower']) {
+      for (const kind of ['background', 'text']) {
+        $(colorIds[level][kind]).value = pendingColumnSettings.colors[level][kind];
+      }
+    }
     const fixedInput = $('fixedColumnCount');
     fixedInput.max = String(mappedFields.length);
     fixedInput.value = String(Math.min(fixedColumnCount,mappedFields.length));
@@ -1685,6 +1731,16 @@
     const gradients = {};
     const labels = {};
     const groups = {};
+    const colors = {
+      upper: {
+        background: $('upperHeaderBackground').value,
+        text: $('upperHeaderText').value
+      },
+      lower: {
+        background: $('lowerHeaderBackground').value,
+        text: $('lowerHeaderText').value
+      }
+    };
 
     for (const item of items) {
       const fieldName = item.dataset.fieldName;
@@ -1734,6 +1790,7 @@
     columnGradients = gradients;
     columnHeaderLabels = labels;
     columnHeaderGroups = groups;
+    headerColors = colors;
     fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
     await saveColumnDisplayModes();
