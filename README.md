@@ -174,3 +174,11 @@ BigQuery / CSV / Excel / DB
 - `Ctrl+C` はTableau Public Desktop上で正常動作しないため非対応。キーイベントをフックしない
 - Clipboard APIの`writeText()`は検証環境で完了しなかったため使用せず、動作が確認できた`execCommand('copy')`を使用
 - 現行の`preview/`で検証中。本番ルートの`app.js`への反映は未実施
+
+### 現行検証UI（preview/clean-ui-v7.trex）
+- 画面上部から「Data Viewer」タイトルとクリップボード診断ボタン、診断ログ・診断用コードを撤去
+- ページ情報、前へ・ページ数・次へを左側にまとめ、CSV・再読み込みも同じ操作行へ配置
+- 拡張機能の書式設定から独自の「表示書式」セレクトを廃止（既存の保存値は読み込まず、表示／CSVともTableauのformattedValueを利用）
+- 「表示方式（通常／棒グラフ／ヒートマップ）」、3色境界値、固定列数、セル範囲選択と右クリックコピーは維持
+- Tableau Public Desktop/Cloudでの変更後の実機動作検証は未実施
+- 本番ルートは未変更。mainのpreview/を更新し、PR #1のブランチにも同じ仕様を適用
