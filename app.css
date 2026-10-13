@@ -71,7 +71,6 @@ tbody tr:hover td.cell-bar{background:#e8f0fe}
 .column-order-label{flex:1 1 125px;min-width:110px;align-self:center}
 .column-setting-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11px;color:var(--muted)}
 .column-setting-field select{height:32px;max-width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);font:12px Arial,"Noto Sans JP",sans-serif}
-.column-format-select{width:205px}
 .column-mode-select{width:128px}
 .column-color-field{width:58px}
 .column-color-field[hidden]{display:none}
@@ -99,25 +98,57 @@ tbody td.is-selected-cell,tbody tr:hover td.is-selected-cell{outline:2px solid v
 .cell-menu-action{display:block;width:100%;padding:9px 12px;border:0;background:#fff;text-align:left;font:inherit;cursor:pointer;color:var(--text)}
 .cell-menu-action:hover,.cell-menu-action:focus-visible{background:var(--subtle)}
 
-/* v0.15 - keep paging visible above the scrollable table viewport. */
+/* Compact toolbar: page summary + navigation on left, export/refresh on same row. */
 .app{min-width:0;min-height:0}
-.toolbar{flex:0 0 auto;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;background:#fff;min-width:0}
-.toolbar-main{min-width:0;min-height:42px;display:flex;align-items:center;gap:6px;padding:4px 8px}
-.toolbar-main .title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.toolbar-main .spacer{min-width:0}
-.toolbar-main .button{flex:0 0 auto}
-.toolbar-paging{min-width:0;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px 10px;padding:4px 8px;background:var(--subtle);border-top:1px solid var(--grid)}
-.toolbar-status{min-width:0;flex:1 1 125px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.toolbar{flex:0 0 auto;display:flex;align-items:stretch;min-width:0;min-height:0;padding:0;border-bottom:1px solid var(--border);background:var(--subtle)}
+.toolbar-paging{width:100%;min-width:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px 12px;padding:6px 8px}
+.toolbar-page-group{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}
+.toolbar-status{min-width:0;flex:0 1 auto;font-size:11px;color:var(--muted);white-space:nowrap}
 .toolbar-paging .pager{flex:0 0 auto;display:flex;align-items:center;gap:6px}
-.toolbar-paging .pager .button{min-height:28px;padding:3px 8px}
-#page{min-width:64px;font-size:12px}
+.toolbar-paging .button{min-height:28px;padding:3px 8px;white-space:nowrap}
+.toolbar-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+#page{min-width:64px;text-align:center;font-size:12px}
 .main{min-height:0;min-width:0;flex:1 1 auto;overflow:hidden}
 .table-wrap{min-height:0;min-width:0;height:100%;overflow:auto;overscroll-behavior:contain}
 @media(max-width:350px){
-  .toolbar-main{gap:4px;padding:3px 5px}
-  .toolbar-main .button{padding:4px 6px}
-  .toolbar-paging{padding:3px 5px;gap:2px 6px}
-  .toolbar-paging .pager{gap:3px}
-  .toolbar-status{flex-basis:80px}
+  .toolbar-paging{gap:4px 8px;padding:4px 5px}
+  .toolbar-page-group,.toolbar-paging .pager,.toolbar-actions{gap:4px}
+  .toolbar-paging .button{padding:3px 6px}
   #page{min-width:50px}
 }
+
+/* Excel-style rectangular selection. Must override row hover and heatmap backgrounds. */
+.table-wrap{user-select:none;-webkit-user-select:none}
+tbody td.is-selected-cell,
+tbody tr:hover td.is-selected-cell,
+tbody tr:hover td.is-selected-cell.cell-heatmap,
+tbody td.is-selected-cell.cell-heatmap{background:#d2e3fc!important;outline:1px solid #7baaf7;outline-offset:-1px}
+tbody td.is-selected-cell.cell-bar .cell-bar-fill{opacity:.7}
+
+/* Two-level Tableau worksheet headers. A blank upper label spans both rows. */
+thead tr.header-group-row th{top:0;height:34px}
+thead tr.header-detail-row th{top:34px;height:34px}
+thead tr.header-group-row th[rowspan="2"]{top:0;vertical-align:middle}
+thead th.header-group-cell{text-align:center;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+thead th.header-group-cell.fixed-column{z-index:7}
+.column-header-fields{display:flex;flex:1 1 360px;flex-wrap:wrap;gap:8px;min-width:0;order:0}
+.column-header-field{flex:1 1 175px;min-width:155px}
+.column-header-field input{height:32px;width:100%;max-width:100%;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);padding:4px 7px;font:12px Arial,"Noto Sans JP",sans-serif}
+.column-source-name{order:2;flex:1 0 100%;min-width:0;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.column-setting-item>.column-setting-field{order:1}
+.column-setting-item>.column-gradient-settings{order:3}
+
+/* Per-cell palettes: each lower field and each actual merged upper cell. */
+.header-color-settings{margin:10px 0 12px;padding:10px;border:1px solid var(--border);border-radius:3px}
+.header-color-settings legend{padding:0 5px;font-size:12px;font-weight:600}
+.upper-header-color-list{display:flex;flex-direction:column;gap:8px}
+.upper-color-item{padding:8px;border:1px solid var(--grid);display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.upper-color-item>strong{flex:1 1 180px;font-size:12px;overflow-wrap:anywhere}
+.header-color-empty{font-size:12px;color:var(--muted)}
+.header-cell-color-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.header-cell-color-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.header-cell-color-input{width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.lower-header-colors{order:1;flex:1 1 220px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.lower-header-colors>strong{font-size:11px;color:var(--muted);font-weight:600}
+.column-source-name{order:-1;flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;padding-bottom:5px;border-bottom:1px solid var(--grid)}
+.column-source-name strong{color:var(--text);font-size:12px;font-weight:600;overflow-wrap:anywhere}
