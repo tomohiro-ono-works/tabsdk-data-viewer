@@ -10,6 +10,8 @@
   const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
   const COLUMN_COLORS_KEY = 'columnColorsV1';
   const COLUMN_GRADIENTS_KEY = 'columnGradientsV1';
+  const COLUMN_HEADER_LABELS_KEY = 'columnHeaderLabelsV1';
+  const COLUMN_HEADER_GROUPS_KEY = 'columnHeaderGroupsV1';
   const DEFAULT_GRADIENT_COLORS = {
     low: '#e8f0fe',
     mid: '#90caf9',
@@ -41,6 +43,8 @@
   let columnDisplayModes = {};
   let columnColors = {};
   let columnGradients = {};
+  let columnHeaderLabels = {};
+  let columnHeaderGroups = {};
   let selectedCell = null;
   let selectionAnchor = null;
   let selectionFocus = null;
@@ -282,8 +286,23 @@
     return context.measureText(value).width;
   }
 
+  function sourceHeaderLabel(info) {
+    return (info.column && (info.column.fieldName ||
+      info.column.caption || info.column.name)) || info.fieldName;
+  }
+
+  function displayHeaderLabel(info) {
+    const alias = columnHeaderLabels[info.fieldName];
+    return typeof alias === 'string' && alias.trim() ? alias : sourceHeaderLabel(info);
+  }
+
+  function upperHeaderLabel(fieldName) {
+    const group = columnHeaderGroups[fieldName];
+    return typeof group === 'string' ? group.trim() : '';
+  }
+
   function getAutoColumnWidth(columnInfo, dataTable) {
-    let required = measureTextWidth(columnInfo.fieldName);
+    let required = measureTextWidth(displayHeaderLabel(columnInfo));
 
     for (const row of dataTable.data) {
       required = Math.max(
@@ -386,6 +405,14 @@
         .filter(([, value]) => validHex(value))
     );
     columnGradients = read(COLUMN_GRADIENTS_KEY);
+    columnHeaderLabels = Object.fromEntries(
+      Object.entries(read(COLUMN_HEADER_LABELS_KEY))
+        .filter(([, value]) => typeof value === 'string')
+    );
+    columnHeaderGroups = Object.fromEntries(
+      Object.entries(read(COLUMN_HEADER_GROUPS_KEY))
+        .filter(([, value]) => typeof value === 'string')
+    );
   }
 
   async function saveColumnPresentation() {
@@ -394,6 +421,12 @@
     );
     tableau.extensions.settings.set(
       COLUMN_GRADIENTS_KEY, JSON.stringify(columnGradients)
+    );
+    tableau.extensions.settings.set(
+      COLUMN_HEADER_LABELS_KEY, JSON.stringify(columnHeaderLabels)
+    );
+    tableau.extensions.settings.set(
+      COLUMN_HEADER_GROUPS_KEY, JSON.stringify(columnHeaderGroups)
     );
     await tableau.extensions.settings.saveAsync();
   }
@@ -435,34 +468,41 @@
 
   function updateStickyOffsets(table) {
     const cols = Array.from(table.querySelectorAll('colgroup col'));
-    const activeFixedCount = Math.min(fixedColumnCount, cols.length);
-    let left = 0;
-
-    cols.forEach((col, index) => {
+    const fixedCount = Math.min(fixedColumnCount, cols.length);
+    const leftOffsets = [0];
+    cols.forEach(col => {
       const width = parseFloat(col.style.width);
-      const cells = table.querySelectorAll(
-        'thead tr > th:nth-child(' + (index + 1) +
-          '), tbody tr > td:nth-child(' + (index + 1) + ')'
-      );
+      leftOffsets.push(leftOffsets[leftOffsets.length - 1] +
+        (Number.isFinite(width) ? width : DEFAULT_COLUMN_WIDTH));
+    });
 
-      cells.forEach((cell) => {
+    // With colSpan and rowSpan, nth-child no longer means the data-column index.
+    // Every header cell carries its actual underlying column range.
+    table.querySelectorAll('thead th').forEach(th => {
+      const start = Number(th.dataset.startCol);
+      const end = Number(th.dataset.endCol);
+      th.classList.remove('fixed-column', 'fixed-column-boundary');
+      th.style.left = '';
+      if (Number.isInteger(start) && Number.isInteger(end) &&
+          end < fixedCount) {
+        th.classList.add('fixed-column');
+        th.style.left = leftOffsets[start] + 'px';
+        if (end === fixedCount - 1) th.classList.add('fixed-column-boundary');
+      }
+    });
+
+    for (const row of table.tBodies[0].rows) {
+      for (let index = 0; index < row.cells.length; index++) {
+        const cell = row.cells[index];
         cell.classList.remove('fixed-column', 'fixed-column-boundary');
         cell.style.left = '';
-      });
-
-      if (index < activeFixedCount) {
-        cells.forEach((cell) => {
+        if (index < fixedCount) {
           cell.classList.add('fixed-column');
-          cell.style.left = left + 'px';
-
-          if (index === activeFixedCount - 1) {
-            cell.classList.add('fixed-column-boundary');
-          }
-        });
+          cell.style.left = leftOffsets[index] + 'px';
+          if (index === fixedCount - 1) cell.classList.add('fixed-column-boundary');
+        }
       }
-
-      left += Number.isFinite(width) ? width : DEFAULT_COLUMN_WIDTH;
-    });
+    }
   }
 
   function applyColumnWidth(table, colElement, width) {
@@ -791,10 +831,17 @@
       return 0;
     }
 
-    const headerRow = document.createElement('tr');
+    const hasUpperHeaders = displayColumns.some(
+      info => upperHeaderLabel(info.fieldName) !== ''
+    );
+    const upperRow = document.createElement('tr');
+    upperRow.className = 'header-group-row';
+    const detailRow = document.createElement('tr');
+    detailRow.className = hasUpperHeaders ? 'header-detail-row' : 'header-single-row';
+    const leafHeaders = [];
     let totalWidth = 0;
 
-    displayColumns.forEach((columnInfo) => {
+    displayColumns.forEach((columnInfo, index) => {
       const width = resolveColumnWidth(columnInfo, dataTable);
       const col = document.createElement('col');
       col.dataset.fieldName = columnInfo.fieldName;
@@ -803,36 +850,63 @@
       totalWidth += width;
 
       const th = document.createElement('th');
+      th.dataset.startCol = String(index);
+      th.dataset.endCol = String(index);
       const label = document.createElement('span');
       label.className = 'column-header-label';
-      label.textContent =
-        columnInfo.column.fieldName ||
-        columnInfo.column.caption ||
-        columnInfo.column.name ||
-        columnInfo.fieldName;
+      label.textContent = displayHeaderLabel(columnInfo);
 
       const resizer = document.createElement('span');
       resizer.className = 'column-resizer';
       resizer.setAttribute('role', 'separator');
       resizer.setAttribute('aria-orientation', 'vertical');
       resizer.title = 'ドラッグして列幅を変更';
-
-      attachColumnResizer(
-        resizer,
-        table,
-        col,
-        columnInfo.fieldName
-      );
+      attachColumnResizer(resizer, table, col, columnInfo.fieldName);
 
       th.appendChild(label);
       th.appendChild(resizer);
-      headerRow.appendChild(th);
+      leafHeaders.push(th);
     });
 
     table.style.width = totalWidth + 'px';
     table.style.minWidth = totalWidth + 'px';
 
-    thead.appendChild(headerRow);
+    if (!hasUpperHeaders) {
+      leafHeaders.forEach(th => detailRow.appendChild(th));
+      thead.appendChild(detailRow);
+    } else {
+      let index = 0;
+      while (index < displayColumns.length) {
+        const group = upperHeaderLabel(displayColumns[index].fieldName);
+        if (!group) {
+          const th = leafHeaders[index];
+          th.rowSpan = 2;
+          upperRow.appendChild(th);
+          index++;
+          continue;
+        }
+
+        let end = index + 1;
+        // Split at fixed-column boundary so a group never spans sticky/nonsticky columns.
+        while (end < displayColumns.length &&
+               upperHeaderLabel(displayColumns[end].fieldName) === group &&
+               end !== fixedColumnCount) end++;
+
+        const parent = document.createElement('th');
+        parent.className = 'header-group-cell';
+        parent.colSpan = end - index;
+        parent.dataset.startCol = String(index);
+        parent.dataset.endCol = String(end - 1);
+        parent.textContent = group;
+        upperRow.appendChild(parent);
+        for (let c = index; c < end; c++) {
+          detailRow.appendChild(leafHeaders[c]);
+        }
+        index = end;
+      }
+      thead.appendChild(upperRow);
+      thead.appendChild(detailRow);
+    }
 
     const alignmentClasses = displayColumns.map(
       ({ column, cellIndex }) =>
@@ -982,10 +1056,10 @@
   }
 
   function csvColumnHeader(columns) {
-    return columns.map(info => escapeDelimitedValue(
-      info.column.fieldName || info.column.caption ||
-      info.column.name || info.fieldName, ','
-    )).join(',') + '\r\n';
+    // CSV stays one header row. Use the edited leaf labels only.
+    return columns.map(info =>
+      escapeDelimitedValue(displayHeaderLabel(info), ',')
+    ).join(',') + '\r\n';
   }
 
   async function buildNextCsvPart(s) {
@@ -1480,10 +1554,34 @@
       item.className = 'column-setting-item';
       item.dataset.fieldName = fieldName;
 
-      const name = document.createElement('strong');
-      name.className = 'column-setting-name';
-      name.textContent = fieldName;
-      item.appendChild(name);
+      const headerFields = document.createElement('div');
+      headerFields.className = 'column-header-fields';
+      const createTextField = (caption, cls, initial, placeholder) => {
+        const field = document.createElement('label');
+        field.className = 'column-setting-field column-header-field';
+        const title = document.createElement('span');
+        title.textContent = caption;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = cls;
+        input.value = initial;
+        input.placeholder = placeholder;
+        input.setAttribute('aria-label', fieldName + ' ' + caption);
+        field.append(title, input);
+        headerFields.appendChild(field);
+      };
+
+      // Upper header is on the left; bottom header can be renamed freely.
+      createTextField('上位ヘッダー', 'column-header-group-input',
+        draft.groups[fieldName] || '', '未指定');
+      createTextField('項目名', 'column-header-label-input',
+        draft.labels[fieldName] || fieldName, fieldName);
+      item.appendChild(headerFields);
+
+      const source = document.createElement('div');
+      source.className = 'column-source-name';
+      source.textContent = '元のフィールド: ' + fieldName;
+      item.appendChild(source);
 
       const selectField = (caption,cssClass,options,chosen) => {
         const field = document.createElement('label');
@@ -1559,6 +1657,8 @@
   function openSettings() {
     pendingColumnSettings = {
       modes: {...columnDisplayModes},
+      labels: {...columnHeaderLabels},
+      groups: {...columnHeaderGroups},
       gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
         [fieldName,gradientConfig(fieldName)]))
     };
@@ -1583,11 +1683,17 @@
     );
     const modes = {};
     const gradients = {};
+    const labels = {};
+    const groups = {};
 
     for (const item of items) {
       const fieldName = item.dataset.fieldName;
       const numeric = numericFieldNames.has(fieldName);
       const mode = item.querySelector('.column-mode-select').value;
+      const label = item.querySelector('.column-header-label-input').value.trim();
+      const group = item.querySelector('.column-header-group-input').value.trim();
+      if (label && label !== fieldName) labels[fieldName] = label;
+      if (group) groups[fieldName] = group;
       if (numeric && (mode === 'bar' || mode === 'heatmap')) {
         modes[fieldName] = mode;
       }
@@ -1626,6 +1732,8 @@
 
     columnDisplayModes = modes;
     columnGradients = gradients;
+    columnHeaderLabels = labels;
+    columnHeaderGroups = groups;
     fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
     await saveColumnDisplayModes();
