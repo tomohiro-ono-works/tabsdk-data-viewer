@@ -8,7 +8,6 @@
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
   const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
   const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
-  const COLUMN_FORMATS_KEY = 'columnFormatsV1';
   const COLUMN_COLORS_KEY = 'columnColorsV1';
   const COLUMN_GRADIENTS_KEY = 'columnGradientsV1';
   const DEFAULT_GRADIENT_COLORS = {
@@ -18,19 +17,6 @@
   };
   const GRADIENT_STOPS = ['low', 'mid', 'high'];
   const DEFAULT_VISUAL_COLOR = '#1a73e8';
-  const FORMAT_PRESETS = [
-    ['tableau', 'Tableau書式'],
-    ['raw', '元の値'],
-    ['number0', '数値（小数0桁）'],
-    ['number1', '数値（小数1桁）'],
-    ['number2', '数値（小数2桁）'],
-    ['number3', '数値（小数3桁）'],
-    ['percent0', '％（小数0桁）'],
-    ['percent1', '％（小数1桁）'],
-    ['percent2', '％（小数2桁）'],
-    ['dateDash', '日付（YYYY-MM-DD）'],
-    ['dateSlash', '日付（YYYY/MM/DD）']
-  ];
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -53,7 +39,6 @@
   let autoColumnWidths = {};
   let fixedColumnCount = 0;
   let columnDisplayModes = {};
-  let columnFormats = {};
   let columnColors = {};
   let columnGradients = {};
   let selectedCell = null;
@@ -116,46 +101,6 @@
     }
 
     return String(raw);
-  }
-
-  function formatValue(cell, fieldName) {
-    const format = columnFormats[fieldName] || 'tableau';
-    if (format === 'tableau') return displayValue(cell);
-    const raw = rawValue(cell);
-    if (raw === null || raw === undefined || raw === '') return '';
-    if (format === 'raw') {
-      return raw instanceof Date ? raw.toISOString() : String(raw);
-    }
-    if (/^(number|percent)[0-3]$/.test(format)) {
-      const numeric = typeof raw === 'number' ? raw : Number(raw);
-      if (!Number.isFinite(numeric)) return displayValue(cell);
-      const percent = format.startsWith('percent');
-      const digits = Number(format.slice(-1));
-      return new Intl.NumberFormat('ja-JP', {
-        useGrouping: true,
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits,
-        style: percent ? 'percent' : 'decimal'
-      }).format(numeric);
-    }
-    if (format === 'dateDash' || format === 'dateSlash') {
-      let dateText = '';
-      if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-        const year = raw.getFullYear();
-        const month = String(raw.getMonth() + 1).padStart(2, '0');
-        const day = String(raw.getDate()).padStart(2, '0');
-        dateText = year + '-' + month + '-' + day;
-      } else {
-        const match = String(raw).match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:$|[T\s])/);
-        if (match) {
-          dateText = match[1] + '-' +
-            match[2].padStart(2, '0') + '-' + match[3].padStart(2, '0');
-        }
-      }
-      if (!dateText) return displayValue(cell);
-      return format === 'dateSlash' ? dateText.replace(/-/g, '/') : dateText;
-    }
-    return displayValue(cell);
   }
 
   function visualColor(fieldName) {
@@ -343,7 +288,7 @@
     for (const row of dataTable.data) {
       required = Math.max(
         required,
-        measureTextWidth(formatValue(row[columnInfo.cellIndex], columnInfo.fieldName))
+        measureTextWidth(displayValue(row[columnInfo.cellIndex]))
       );
 
       if (required + COLUMN_HORIZONTAL_PADDING >= MAX_COLUMN_WIDTH) {
@@ -436,11 +381,6 @@
         return {};
       }
     };
-    const formats = new Set(FORMAT_PRESETS.map(([key]) => key));
-    columnFormats = Object.fromEntries(
-      Object.entries(read(COLUMN_FORMATS_KEY))
-        .filter(([, value]) => formats.has(value))
-    );
     columnColors = Object.fromEntries(
       Object.entries(read(COLUMN_COLORS_KEY))
         .filter(([, value]) => validHex(value))
@@ -449,9 +389,6 @@
   }
 
   async function saveColumnPresentation() {
-    tableau.extensions.settings.set(
-      COLUMN_FORMATS_KEY, JSON.stringify(columnFormats)
-    );
     tableau.extensions.settings.set(
       COLUMN_COLORS_KEY, JSON.stringify(columnColors)
     );
@@ -700,7 +637,7 @@
   }
 
   function renderValueCell(td, cell, mode, scale, fieldName) {
-    const text = formatValue(cell, fieldName);
+    const text = displayValue(cell);
 
     if (mode === 'bar' && scale) {
       const value = numericValue(cell);
@@ -1080,7 +1017,7 @@
         const offset = s.pendingOffset || 0;
         const lines = page.data.slice(offset).map(row =>
           columns.map(info =>
-            escapeDelimitedValue(formatValue(row[info.cellIndex], info.fieldName), ',')
+            escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
           ).join(',') + '\r\n'
         );
         if (!lines.length) {
@@ -1562,8 +1499,6 @@
         return select;
       };
 
-      selectField('表示書式','column-format-select',
-        FORMAT_PRESETS,draft.formats[fieldName] || 'tableau');
       const mode = selectField('表示方式','column-mode-select',
         [['normal','通常'],['bar','棒グラフ'],['heatmap','ヒートマップ']],
         numeric ? (draft.modes[fieldName] || 'normal') : 'normal');
@@ -1616,7 +1551,6 @@
   function openSettings() {
     pendingColumnSettings = {
       modes: {...columnDisplayModes},
-      formats: {...columnFormats},
       gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
         [fieldName,gradientConfig(fieldName)]))
     };
@@ -1640,20 +1574,14 @@
       $('columnSettingsList').querySelectorAll('.column-setting-item')
     );
     const modes = {};
-    const formats = {};
     const gradients = {};
-    const validFormats = new Set(FORMAT_PRESETS.map(([key]) => key));
 
     for (const item of items) {
       const fieldName = item.dataset.fieldName;
       const numeric = numericFieldNames.has(fieldName);
       const mode = item.querySelector('.column-mode-select').value;
-      const format = item.querySelector('.column-format-select').value;
       if (numeric && (mode === 'bar' || mode === 'heatmap')) {
         modes[fieldName] = mode;
-      }
-      if (validFormats.has(format) && format !== 'tableau') {
-        formats[fieldName] = format;
       }
       if (!numeric) continue;
 
@@ -1689,7 +1617,6 @@
       ? Math.max(0,Math.min(requestedFixedCount,mappedFields.length)) : 0;
 
     columnDisplayModes = modes;
-    columnFormats = formats;
     columnGradients = gradients;
     fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
