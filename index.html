@@ -9,19 +9,19 @@
 <body>
   <div class="app">
     <header class="toolbar">
-      <div class="toolbar-main">
-        <div class="title">Data Viewer</div>
-        <div class="spacer"></div>
-        <button id="exportCsv" class="button" disabled>CSV</button>
-        <button id="refreshData" class="button">再読み込み</button>
-      </div>
       <div class="toolbar-paging">
-        <div id="status" class="toolbar-status">-</div>
-        <nav class="pager" aria-label="ページ移動">
-          <button id="prev" class="button">前へ</button>
-          <span id="page" aria-live="polite">-</span>
-          <button id="next" class="button">次へ</button>
-        </nav>
+        <div class="toolbar-page-group">
+          <div id="status" class="toolbar-status">-</div>
+          <nav class="pager" aria-label="ページ移動">
+            <button id="prev" class="button">前へ</button>
+            <span id="page" aria-live="polite">-</span>
+            <button id="next" class="button">次へ</button>
+          </nav>
+        </div>
+        <div class="toolbar-actions">
+          <button id="exportCsv" class="button" disabled>CSV</button>
+          <button id="refreshData" class="button">再読み込み</button>
+        </div>
       </div>
     </header>
 
@@ -61,7 +61,7 @@
             <span>左から固定する列数</span>
             <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
           </label>
-          <div class="settings-help">0で固定なし。列順はTableauの「表示列」の順序を使用します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値と色を指定できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
+          <div class="settings-help">0で固定なし。列順と値の表示書式はTableau側の設定を使用します。数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値・色を指定できます。</div>
           <div id="settingsError" class="settings-error" role="alert" hidden></div>
           <div id="columnSettingsList" class="column-settings-list"></div>
         </div>
