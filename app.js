@@ -813,15 +813,15 @@
     return output.join('\r\n');
   }
 
-  async function copySelectedCell() {
+  function copySelectedCell() {
     if (!selectionBounds()) {
       hideCellMenu();
       return;
     }
     const text = selectedText();
     hideCellMenu();
-    await writeClipboardText(text);
-    setMessage('選択範囲をコピーしました。');
+    writeClipboardText(text);
+    setMessage('選択範囲のコピーを実行しました。');
   }
 
   function renderTable(dataTable) {
@@ -1279,36 +1279,21 @@
     await closeCsvExport('CSV出力を中止しました。');
   }
 
-  async function writeClipboardText(text) {
-    if (
-      navigator.clipboard &&
-      typeof navigator.clipboard.writeText === 'function'
-    ) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return;
-      } catch (error) {
-        console.warn(
-          'navigator.clipboard.writeText failed; using fallback.',
-          error
-        );
-      }
-    }
-
+  function writeClipboardText(text) {
+    // Tableau Public Desktop: use the verified synchronous method.
     const textarea = document.createElement('textarea');
     textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.top = '0';
+    textarea.style.cssText =
+      'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
     document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-
-    const copied = document.execCommand('copy');
-    textarea.remove();
-
-    if (!copied) {
-      throw new Error('クリップボードへのコピーに失敗しました。');
+    try {
+      textarea.focus();
+      textarea.select();
+      if (!document.execCommand('copy')) {
+        throw new Error('クリップボードへのコピーに失敗しました。');
+      }
+    } finally {
+      textarea.remove();
     }
   }
 
@@ -1756,7 +1741,7 @@
   });
 
   $('copyCell').addEventListener('click', () => {
-    copySelectedCell().catch(showError);
+    try { copySelectedCell(); } catch (error) { showError(error); }
   });
 
   document.addEventListener('pointerdown', event => {
@@ -1765,21 +1750,6 @@
 
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') hideCellMenu();
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c' &&
-        selectionBounds() && !event.target.closest('input,textarea,select')) {
-      event.preventDefault();
-      // Trigger a synchronous native copy event while the keyboard gesture is active.
-      if (!document.execCommand('copy')) copySelectedCell().catch(showError);
-    }
-  });
-
-  document.addEventListener('copy', event => {
-    if (!selectionBounds() || event.target.closest?.('input,textarea,select')) return;
-    if (!event.clipboardData) return;
-    event.clipboardData.setData('text/plain', selectedText());
-    event.preventDefault();
-    hideCellMenu();
-    setMessage('選択範囲をコピーしました。');
   });
 
   $('prev').addEventListener('click', function () {
