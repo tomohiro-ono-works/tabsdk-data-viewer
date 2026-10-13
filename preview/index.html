@@ -4,25 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tabsdk-data-viewer</title>
-  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./app.css?v=clean-settings-and-toolbar-v7-20261013">
 </head>
 <body>
   <div class="app">
     <header class="toolbar">
-      <div class="toolbar-main">
-        <div class="title">Data Viewer <span style="font-size:11px;color:#174ea6">DIAG-RCLICK-01</span></div>
-        <div class="spacer"></div>
-        <button id="showCopyDiagnostics" class="button" type="button">コピー診断</button>
-        <button id="exportCsv" class="button" disabled>CSV</button>
-        <button id="refreshData" class="button">再読み込み</button>
-      </div>
       <div class="toolbar-paging">
-        <div id="status" class="toolbar-status">-</div>
-        <nav class="pager" aria-label="ページ移動">
-          <button id="prev" class="button">前へ</button>
-          <span id="page" aria-live="polite">-</span>
-          <button id="next" class="button">次へ</button>
-        </nav>
+        <div class="toolbar-page-group">
+          <div id="status" class="toolbar-status">-</div>
+          <nav class="pager" aria-label="ページ移動">
+            <button id="prev" class="button">前へ</button>
+            <span id="page" aria-live="polite">-</span>
+            <button id="next" class="button">次へ</button>
+          </nav>
+        </div>
+        <div class="toolbar-actions">
+          <button id="exportCsv" class="button" disabled>CSV</button>
+          <button id="refreshData" class="button">再読み込み</button>
+        </div>
       </div>
     </header>
 
@@ -62,7 +61,7 @@
             <span>左から固定する列数</span>
             <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
           </label>
-          <div class="settings-help">0で固定なし。列順はTableauの「表示列」の順序を使用します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値と色を指定できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
+          <div class="settings-help">0で固定なし。列順と値の表示書式はTableau側の設定を使用します。数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値・色を指定できます。</div>
           <div id="settingsError" class="settings-error" role="alert" hidden></div>
           <div id="columnSettingsList" class="column-settings-list"></div>
         </div>
@@ -81,6 +80,6 @@
   </div>
 
   <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
-  <script src="./app.js?v=right-click-only-v6-20261013"></script>
+  <script src="./app.js?v=clean-settings-and-toolbar-v7-20261013"></script>
 </body>
 </html>
