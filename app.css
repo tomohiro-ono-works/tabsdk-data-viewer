@@ -137,3 +137,14 @@ thead th.header-group-cell.fixed-column{z-index:7}
 .column-source-name{order:2;flex:1 0 100%;min-width:0;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 .column-setting-item>.column-setting-field{order:1}
 .column-setting-item>.column-gradient-settings{order:3}
+
+/* Independent colors for the upper/lower header tiers, configured once per tier. */
+.header-color-settings{margin:10px 0 12px;padding:10px;border:1px solid var(--border);border-radius:3px}
+.header-color-settings legend{padding:0 5px;font-size:12px;font-weight:600}
+.header-color-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:5px 0}
+.header-color-row+ .header-color-row{border-top:1px solid var(--grid)}
+.header-color-row strong{flex:1 1 130px;font-size:12px}
+.header-color-row label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.header-color-row input[type=color]{width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.column-source-name{order:-1;flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;padding-bottom:5px;border-bottom:1px solid var(--grid)}
+.column-source-name strong{color:var(--text);font-size:12px;font-weight:600;overflow-wrap:anywhere}
