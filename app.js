@@ -13,6 +13,7 @@
   const COLUMN_HEADER_LABELS_KEY = 'columnHeaderLabelsV1';
   const COLUMN_HEADER_GROUPS_KEY = 'columnHeaderGroupsV1';
   const HEADER_COLORS_KEY = 'headerColorsV1';
+  const HEADER_CELL_COLORS_KEY = 'headerCellColorsV1';
   const DEFAULT_HEADER_COLORS = {
     upper: { background: '#f1f3f4', text: '#202124' },
     lower: { background: '#f1f3f4', text: '#202124' }
@@ -54,6 +55,7 @@
     upper: {...DEFAULT_HEADER_COLORS.upper},
     lower: {...DEFAULT_HEADER_COLORS.lower}
   };
+  let headerCellColors = { upper: {}, lower: {} };
   let selectedCell = null;
   let selectionAnchor = null;
   let selectionFocus = null;
@@ -310,10 +312,57 @@
     return typeof group === 'string' ? group.trim() : '';
   }
 
-  function styleHeaderCell(th, level) {
-    const colors = headerColors[level] || DEFAULT_HEADER_COLORS[level];
+  function sanitizeCellColors(value) {
+    const result = { upper: {}, lower: {} };
+    for (const level of ['upper', 'lower']) {
+      const entries = value?.[level];
+      if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+      for (const [fieldName, saved] of Object.entries(entries)) {
+        if (!saved || typeof saved !== 'object') continue;
+        result[level][fieldName] = {};
+        for (const kind of ['background', 'text']) {
+          if (validHex(saved[kind])) result[level][fieldName][kind] = saved[kind].toLowerCase();
+        }
+      }
+    }
+    return result;
+  }
+
+  function headerCellPalette(level, fieldName, overrides = headerCellColors) {
+    const cell = overrides[level]?.[fieldName] || {};
+    const base = headerColors[level] || DEFAULT_HEADER_COLORS[level];
+    return {
+      background: validHex(cell.background) ? cell.background : base.background,
+      text: validHex(cell.text) ? cell.text : base.text
+    };
+  }
+
+  function styleHeaderCell(th, level, fieldName) {
+    const colors = headerCellPalette(level, fieldName);
     th.style.backgroundColor = colors.background;
     th.style.color = colors.text;
+  }
+
+  function upperHeaderRuns(fields, groupFor, fixedCount) {
+    const runs = [];
+    for (let start = 0; start < fields.length;) {
+      const label = groupFor(fields[start].fieldName).trim();
+      if (!label) {
+        start++;
+        continue;
+      }
+      let end = start + 1;
+      while (end < fields.length && end !== fixedCount &&
+             groupFor(fields[end].fieldName).trim() === label) end++;
+      runs.push({
+        fieldName: fields[start].fieldName,
+        label,
+        start,
+        end
+      });
+      start = end;
+    }
+    return runs;
   }
 
   function getAutoColumnWidth(columnInfo, dataTable) {
@@ -437,6 +486,7 @@
           DEFAULT_HEADER_COLORS[level][key]];
       }))
     ]));
+    headerCellColors = sanitizeCellColors(read(HEADER_CELL_COLORS_KEY));
   }
 
   async function saveColumnPresentation() {
@@ -454,6 +504,9 @@
     );
     tableau.extensions.settings.set(
       HEADER_COLORS_KEY, JSON.stringify(headerColors)
+    );
+    tableau.extensions.settings.set(
+      HEADER_CELL_COLORS_KEY, JSON.stringify(headerCellColors)
     );
     await tableau.extensions.settings.saveAsync();
   }
@@ -871,7 +924,7 @@
       const th = document.createElement('th');
       th.dataset.startCol = String(index);
       th.dataset.endCol = String(index);
-      styleHeaderCell(th, 'lower');
+      styleHeaderCell(th, 'lower', columnInfo.fieldName);
       const label = document.createElement('span');
       label.className = 'column-header-label';
       label.textContent = displayHeaderLabel(columnInfo);
@@ -895,35 +948,31 @@
       leafHeaders.forEach(th => detailRow.appendChild(th));
       thead.appendChild(detailRow);
     } else {
-      let index = 0;
-      while (index < displayColumns.length) {
-        const group = upperHeaderLabel(displayColumns[index].fieldName);
-        if (!group) {
+      const runs = upperHeaderRuns(
+        displayColumns, upperHeaderLabel, fixedColumnCount
+      );
+      const runByStart = new Map(runs.map(run => [run.start, run]));
+      for (let index = 0; index < displayColumns.length;) {
+        const run = runByStart.get(index);
+        if (!run) {
           const th = leafHeaders[index];
           th.rowSpan = 2;
           upperRow.appendChild(th);
           index++;
           continue;
         }
-
-        let end = index + 1;
-        // Split at fixed-column boundary so a group never spans sticky/nonsticky columns.
-        while (end < displayColumns.length &&
-               upperHeaderLabel(displayColumns[end].fieldName) === group &&
-               end !== fixedColumnCount) end++;
-
         const parent = document.createElement('th');
         parent.className = 'header-group-cell';
-        styleHeaderCell(parent, 'upper');
-        parent.colSpan = end - index;
-        parent.dataset.startCol = String(index);
-        parent.dataset.endCol = String(end - 1);
-        parent.textContent = group;
+        styleHeaderCell(parent, 'upper', run.fieldName);
+        parent.colSpan = run.end - run.start;
+        parent.dataset.startCol = String(run.start);
+        parent.dataset.endCol = String(run.end - 1);
+        parent.textContent = run.label;
         upperRow.appendChild(parent);
-        for (let c = index; c < end; c++) {
+        for (let c = run.start; c < run.end; c++) {
           detailRow.appendChild(leafHeaders[c]);
         }
-        index = end;
+        index = run.end;
       }
       thead.appendChild(upperRow);
       thead.appendChild(detailRow);
@@ -1564,6 +1613,59 @@
     el.hidden = !message;
   }
 
+  function createHeaderColorControls(level, fieldName, palette, container, onInput) {
+    const group = document.createElement('div');
+    group.className = 'header-cell-color-controls';
+    for (const [kind, caption] of [['background', '背景色'], ['text', '文字色']]) {
+      const label = document.createElement('label');
+      label.className = 'header-cell-color-label';
+      const title = document.createElement('span');
+      title.textContent = caption;
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.className = 'header-cell-color-input';
+      input.value = palette[kind];
+      input.setAttribute('aria-label', fieldName + ' ' +
+        (level === 'upper' ? '上位' : '下位') + ' ' + caption);
+      input.addEventListener('input', () => onInput(kind, input.value));
+      label.append(title, input);
+      group.appendChild(label);
+    }
+    container.appendChild(group);
+  }
+
+  function renderUpperHeaderColorSettings() {
+    const container = $('upperHeaderColorList');
+    if (!container || !pendingColumnSettings) return;
+    container.innerHTML = '';
+    const fields = mappedFields;
+    const groups = pendingColumnSettings.groups;
+    const fixedCount = Math.min(fields.length, Math.max(0,
+      Math.trunc(Number($('fixedColumnCount').value) || 0)));
+    const runs = upperHeaderRuns(fields, field => groups[field] || '', fixedCount);
+    if (!runs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'header-color-empty';
+      empty.textContent = '上位ヘッダーを設定すると、ここにセルごとの色設定が表示されます。';
+      container.appendChild(empty);
+    }
+    for (const run of runs) {
+      const item = document.createElement('div');
+      item.className = 'upper-color-item';
+      const title = document.createElement('strong');
+      title.textContent = run.label + '（列' + (run.start + 1) +
+        (run.end > run.start + 1 ? '～' + run.end : '') + '）';
+      item.appendChild(title);
+      const colorMap = pendingColumnSettings.cellColors;
+      const palette = headerCellPalette('upper', run.fieldName, colorMap);
+      createHeaderColorControls('upper', run.fieldName, palette, item, (kind, color) => {
+        if (!colorMap.upper[run.fieldName]) colorMap.upper[run.fieldName] = {};
+        colorMap.upper[run.fieldName][kind] = color;
+      });
+      container.appendChild(item);
+    }
+  }
+
   function renderColumnSettings() {
     const list = $('columnSettingsList');
     list.innerHTML = '';
@@ -1607,6 +1709,25 @@
       createTextField('項目名', 'column-header-label-input',
         draft.labels[fieldName] || fieldName, fieldName);
       item.appendChild(headerFields);
+
+      const groupInput = item.querySelector('.column-header-group-input');
+      groupInput.addEventListener('input', () => {
+        draft.groups[fieldName] = groupInput.value.trim();
+        renderUpperHeaderColorSettings();
+      });
+
+      const lowerColors = document.createElement('div');
+      lowerColors.className = 'lower-header-colors';
+      const lowerTitle = document.createElement('strong');
+      lowerTitle.textContent = '下位ヘッダーの色';
+      lowerColors.appendChild(lowerTitle);
+      createHeaderColorControls('lower', fieldName,
+        headerCellPalette('lower', fieldName, draft.cellColors),
+        lowerColors, (kind, color) => {
+          if (!draft.cellColors.lower[fieldName]) draft.cellColors.lower[fieldName] = {};
+          draft.cellColors.lower[fieldName][kind] = color;
+        });
+      item.appendChild(lowerColors);
 
       const selectField = (caption,cssClass,options,chosen) => {
         const field = document.createElement('label');
@@ -1684,26 +1805,15 @@
       modes: {...columnDisplayModes},
       labels: {...columnHeaderLabels},
       groups: {...columnHeaderGroups},
-      colors: {
-        upper: {...headerColors.upper},
-        lower: {...headerColors.lower}
-      },
+      cellColors: sanitizeCellColors(headerCellColors),
       gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
         [fieldName,gradientConfig(fieldName)]))
     };
-    renderColumnSettings();
-    const colorIds = {
-      upper: {background: 'upperHeaderBackground', text: 'upperHeaderText'},
-      lower: {background: 'lowerHeaderBackground', text: 'lowerHeaderText'}
-    };
-    for (const level of ['upper', 'lower']) {
-      for (const kind of ['background', 'text']) {
-        $(colorIds[level][kind]).value = pendingColumnSettings.colors[level][kind];
-      }
-    }
     const fixedInput = $('fixedColumnCount');
     fixedInput.max = String(mappedFields.length);
     fixedInput.value = String(Math.min(fixedColumnCount,mappedFields.length));
+    renderColumnSettings();
+    renderUpperHeaderColorSettings();
     setSettingsError('');
     $('settingsPanel').hidden = false;
     hideCellMenu();
@@ -1723,16 +1833,7 @@
     const gradients = {};
     const labels = {};
     const groups = {};
-    const colors = {
-      upper: {
-        background: $('upperHeaderBackground').value,
-        text: $('upperHeaderText').value
-      },
-      lower: {
-        background: $('lowerHeaderBackground').value,
-        text: $('lowerHeaderText').value
-      }
-    };
+    const cellColors = sanitizeCellColors(pendingColumnSettings.cellColors);
 
     for (const item of items) {
       const fieldName = item.dataset.fieldName;
@@ -1782,7 +1883,7 @@
     columnGradients = gradients;
     columnHeaderLabels = labels;
     columnHeaderGroups = groups;
-    headerColors = colors;
+    headerCellColors = cellColors;
     fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
     await saveColumnDisplayModes();
@@ -1869,6 +1970,7 @@
 
   $('closeSettings').addEventListener('click', closeSettings);
   $('cancelSettings').addEventListener('click', closeSettings);
+  $('fixedColumnCount').addEventListener('input', renderUpperHeaderColorSettings);
   $('applySettings').addEventListener('click', function () {
     applySettings().catch(showError);
   });
