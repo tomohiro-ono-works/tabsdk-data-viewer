@@ -124,3 +124,16 @@ tbody tr:hover td.is-selected-cell,
 tbody tr:hover td.is-selected-cell.cell-heatmap,
 tbody td.is-selected-cell.cell-heatmap{background:#d2e3fc!important;outline:1px solid #7baaf7;outline-offset:-1px}
 tbody td.is-selected-cell.cell-bar .cell-bar-fill{opacity:.7}
+
+/* Two-level Tableau worksheet headers. A blank upper label spans both rows. */
+thead tr.header-group-row th{top:0;height:34px}
+thead tr.header-detail-row th{top:34px;height:34px}
+thead tr.header-group-row th[rowspan="2"]{top:0;vertical-align:middle}
+thead th.header-group-cell{text-align:center;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+thead th.header-group-cell.fixed-column{z-index:7}
+.column-header-fields{display:flex;flex:1 1 360px;flex-wrap:wrap;gap:8px;min-width:0;order:0}
+.column-header-field{flex:1 1 175px;min-width:155px}
+.column-header-field input{height:32px;width:100%;max-width:100%;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);padding:4px 7px;font:12px Arial,"Noto Sans JP",sans-serif}
+.column-source-name{order:2;flex:1 0 100%;min-width:0;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.column-setting-item>.column-setting-field{order:1}
+.column-setting-item>.column-gradient-settings{order:3}
