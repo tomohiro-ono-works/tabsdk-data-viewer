@@ -8,7 +8,6 @@
   const COLUMN_WIDTHS_KEY = 'columnWidthsV1';
   const FIXED_COLUMN_COUNT_KEY = 'fixedColumnCountV1';
   const COLUMN_DISPLAY_MODES_KEY = 'columnDisplayModesV1';
-  const COLUMN_FORMATS_KEY = 'columnFormatsV1';
   const COLUMN_COLORS_KEY = 'columnColorsV1';
   const COLUMN_GRADIENTS_KEY = 'columnGradientsV1';
   const DEFAULT_GRADIENT_COLORS = {
@@ -18,19 +17,6 @@
   };
   const GRADIENT_STOPS = ['low', 'mid', 'high'];
   const DEFAULT_VISUAL_COLOR = '#1a73e8';
-  const FORMAT_PRESETS = [
-    ['tableau', 'Tableau書式'],
-    ['raw', '元の値'],
-    ['number0', '数値（小数0桁）'],
-    ['number1', '数値（小数1桁）'],
-    ['number2', '数値（小数2桁）'],
-    ['number3', '数値（小数3桁）'],
-    ['percent0', '％（小数0桁）'],
-    ['percent1', '％（小数1桁）'],
-    ['percent2', '％（小数2桁）'],
-    ['dateDash', '日付（YYYY-MM-DD）'],
-    ['dateSlash', '日付（YYYY/MM/DD）']
-  ];
   const DEFAULT_COLUMN_WIDTH = 160;
   const MIN_COLUMN_WIDTH = 80;
   const MAX_COLUMN_WIDTH = 420;
@@ -53,7 +39,6 @@
   let autoColumnWidths = {};
   let fixedColumnCount = 0;
   let columnDisplayModes = {};
-  let columnFormats = {};
   let columnColors = {};
   let columnGradients = {};
   let selectedCell = null;
@@ -116,46 +101,6 @@
     }
 
     return String(raw);
-  }
-
-  function formatValue(cell, fieldName) {
-    const format = columnFormats[fieldName] || 'tableau';
-    if (format === 'tableau') return displayValue(cell);
-    const raw = rawValue(cell);
-    if (raw === null || raw === undefined || raw === '') return '';
-    if (format === 'raw') {
-      return raw instanceof Date ? raw.toISOString() : String(raw);
-    }
-    if (/^(number|percent)[0-3]$/.test(format)) {
-      const numeric = typeof raw === 'number' ? raw : Number(raw);
-      if (!Number.isFinite(numeric)) return displayValue(cell);
-      const percent = format.startsWith('percent');
-      const digits = Number(format.slice(-1));
-      return new Intl.NumberFormat('ja-JP', {
-        useGrouping: true,
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits,
-        style: percent ? 'percent' : 'decimal'
-      }).format(numeric);
-    }
-    if (format === 'dateDash' || format === 'dateSlash') {
-      let dateText = '';
-      if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-        const year = raw.getFullYear();
-        const month = String(raw.getMonth() + 1).padStart(2, '0');
-        const day = String(raw.getDate()).padStart(2, '0');
-        dateText = year + '-' + month + '-' + day;
-      } else {
-        const match = String(raw).match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:$|[T\s])/);
-        if (match) {
-          dateText = match[1] + '-' +
-            match[2].padStart(2, '0') + '-' + match[3].padStart(2, '0');
-        }
-      }
-      if (!dateText) return displayValue(cell);
-      return format === 'dateSlash' ? dateText.replace(/-/g, '/') : dateText;
-    }
-    return displayValue(cell);
   }
 
   function visualColor(fieldName) {
@@ -343,7 +288,7 @@
     for (const row of dataTable.data) {
       required = Math.max(
         required,
-        measureTextWidth(formatValue(row[columnInfo.cellIndex], columnInfo.fieldName))
+        measureTextWidth(displayValue(row[columnInfo.cellIndex]))
       );
 
       if (required + COLUMN_HORIZONTAL_PADDING >= MAX_COLUMN_WIDTH) {
@@ -436,11 +381,6 @@
         return {};
       }
     };
-    const formats = new Set(FORMAT_PRESETS.map(([key]) => key));
-    columnFormats = Object.fromEntries(
-      Object.entries(read(COLUMN_FORMATS_KEY))
-        .filter(([, value]) => formats.has(value))
-    );
     columnColors = Object.fromEntries(
       Object.entries(read(COLUMN_COLORS_KEY))
         .filter(([, value]) => validHex(value))
@@ -449,9 +389,6 @@
   }
 
   async function saveColumnPresentation() {
-    tableau.extensions.settings.set(
-      COLUMN_FORMATS_KEY, JSON.stringify(columnFormats)
-    );
     tableau.extensions.settings.set(
       COLUMN_COLORS_KEY, JSON.stringify(columnColors)
     );
@@ -700,7 +637,7 @@
   }
 
   function renderValueCell(td, cell, mode, scale, fieldName) {
-    const text = formatValue(cell, fieldName);
+    const text = displayValue(cell);
 
     if (mode === 'bar' && scale) {
       const value = numericValue(cell);
@@ -803,7 +740,6 @@
     selectionFocus = pos;
     selectedCell = td;
     paintSelection();
-    diagnoseCopy('範囲選択', ((Math.abs(selectionFocus.row-selectionAnchor.row)+1) + '行×' + (Math.abs(selectionFocus.col-selectionAnchor.col)+1) + '列'));
     if (typeof td.focus === 'function') td.focus({ preventScroll: true });
   }
 
@@ -822,99 +758,15 @@
     return output.join('\r\n');
   }
 
-  const copyDiagnostics = [];
-  function diagnoseCopy(stage, detail = '') {
-    const entry = new Date().toLocaleTimeString('ja-JP') + ' | ' + stage + (detail ? ' | ' + detail : '');
-    copyDiagnostics.push(entry);
-    if (copyDiagnostics.length > 150) copyDiagnostics.shift();
-    let panel = $('copyDiagnostics');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'copyDiagnostics';
-      panel.style.cssText = 'position:absolute;right:8px;bottom:8px;z-index:70;width:min(520px,calc(100% - 16px));max-height:45%;background:#fff;border:2px solid #174ea6;padding:8px;display:flex;flex-direction:column;gap:5px;box-shadow:0 4px 18px #0004';
-      const bar = document.createElement('div');
-      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
-      const heading = document.createElement('strong');
-      heading.textContent = 'クリップボード診断（preview専用）';
-      const test = document.createElement('button');
-      test.className = 'button';
-      test.textContent = '旧方式テスト';
-      test.addEventListener('click', probeLegacyCopy);
-      const save = document.createElement('button');
-      save.className = 'button';
-      save.textContent = 'ログ保存';
-      save.addEventListener('click', downloadCopyDiagnostics);
-      const btn = document.createElement('button');
-      btn.className = 'button';
-      btn.textContent = '閉じる';
-      btn.addEventListener('click', () => panel.hidden = true);
-      bar.style.flexWrap = 'wrap';
-      bar.style.gap = '4px';
-      bar.append(heading, test, save, btn);
-      const output = document.createElement('pre');
-      output.id = 'copyDiagnosticLog';
-      output.style.cssText = 'overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;margin:0';
-      panel.append(bar, output);
-      document.querySelector('.app').appendChild(panel);
-    }
-    panel.hidden = false;
-    $('copyDiagnosticLog').textContent = copyDiagnostics.join('\n');
-  }
-  function copyEnvironment() {
-    const policy = document.permissionsPolicy || document.featurePolicy;
-    let allowed = 'unknown';
-    try { if (policy?.allowsFeature) allowed = String(policy.allowsFeature('clipboard-write')); } catch (e) { allowed = e.name; }
-    return 'secure=' + isSecureContext + ', focus=' + document.hasFocus() +
-      ', clipboardAPI=' + !!navigator.clipboard?.writeText + ', policy=' + allowed;
-  }
-
-  function downloadCopyDiagnostics() {
-    const blob = new Blob(['\uFEFF', copyDiagnostics.join('\r\n'), '\r\n'],
-      { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'tableau-clipboard-diagnostic.txt';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-    diagnoseCopy('ログ保存操作', 'ダウンロード開始');
-  }
-
-  function probeLegacyCopy() {
-    diagnoseCopy('旧方式テスト開始', copyEnvironment());
-    const area = document.createElement('textarea');
-    area.value = 'TABLEAU_COPY_TEST_20261013';
-    area.style.cssText = 'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
-    document.body.appendChild(area);
-    area.focus();
-    area.select();
-    diagnoseCopy('textareaフォーカス', String(document.activeElement === area));
-    try {
-      const result = document.execCommand('copy');
-      diagnoseCopy('旧方式 execCommand(copy) 戻り値', String(result) +
-        '（実際に貼り付けられるか別途確認が必要）');
-    } catch (error) {
-      diagnoseCopy('旧方式例外', error.name + ': ' + error.message);
-    } finally {
-      area.remove();
-    }
-  }
-
   function copySelectedCell() {
-    if (!selectionBounds()) { hideCellMenu(); return; }
-    const value = selectedText();
-    hideCellMenu();
-    diagnoseCopy('選択範囲コピー開始', '文字数=' + value.length);
-    try {
-      writeClipboardText(value);
-      diagnoseCopy('選択範囲コピー完了', 'API戻り値は成功。実際の貼付を確認してください');
-      setMessage('コピー操作を実行しました。貼り付け先で確認してください。');
-    } catch (error) {
-      diagnoseCopy('選択範囲コピー失敗', error.name + ': ' + error.message);
-      setMessage('コピー失敗: ' + error.message, 'error');
+    if (!selectionBounds()) {
+      hideCellMenu();
+      return;
     }
+    const text = selectedText();
+    hideCellMenu();
+    writeClipboardText(text);
+    setMessage('選択範囲をコピーしました。');
   }
 
   function renderTable(dataTable) {
@@ -1173,7 +1025,7 @@
         const offset = s.pendingOffset || 0;
         const lines = page.data.slice(offset).map(row =>
           columns.map(info =>
-            escapeDelimitedValue(formatValue(row[info.cellIndex], info.fieldName), ',')
+            escapeDelimitedValue(displayValue(row[info.cellIndex]), ',')
           ).join(',') + '\r\n'
         );
         if (!lines.length) {
@@ -1372,22 +1224,21 @@
     await closeCsvExport('CSV出力を中止しました。');
   }
 
-  function writeClipboardText(value) {
-    // Tableau Public Desktop: tested execCommand(copy) succeeds.
-    // Do not invoke navigator.clipboard.writeText; its promise stays pending.
-    const area = document.createElement('textarea');
-    area.value = value;
-    area.style.cssText = 'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
-    document.body.appendChild(area);
+  function writeClipboardText(text) {
+    // Tableau Public Desktop: synchronous copy was verified on user interaction.
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.cssText =
+      'position:fixed;left:8px;top:8px;width:1px;height:1px;opacity:.01';
+    document.body.appendChild(textarea);
     try {
-      area.focus();
-      area.select();
-      diagnoseCopy('execCommand 開始', 'textareaFocus=' + (document.activeElement === area));
-      const copied = document.execCommand('copy');
-      diagnoseCopy('execCommand 戻り値', String(copied));
-      if (!copied) throw new Error('execCommand(copy) は false を返しました');
+      textarea.focus();
+      textarea.select();
+      if (!document.execCommand('copy')) {
+        throw new Error('クリップボードへのコピーに失敗しました。');
+      }
     } finally {
-      area.remove();
+      textarea.remove();
     }
   }
 
@@ -1656,8 +1507,6 @@
         return select;
       };
 
-      selectField('表示書式','column-format-select',
-        FORMAT_PRESETS,draft.formats[fieldName] || 'tableau');
       const mode = selectField('表示方式','column-mode-select',
         [['normal','通常'],['bar','棒グラフ'],['heatmap','ヒートマップ']],
         numeric ? (draft.modes[fieldName] || 'normal') : 'normal');
@@ -1710,7 +1559,6 @@
   function openSettings() {
     pendingColumnSettings = {
       modes: {...columnDisplayModes},
-      formats: {...columnFormats},
       gradients: Object.fromEntries(mappedFields.map(({fieldName}) =>
         [fieldName,gradientConfig(fieldName)]))
     };
@@ -1734,20 +1582,14 @@
       $('columnSettingsList').querySelectorAll('.column-setting-item')
     );
     const modes = {};
-    const formats = {};
     const gradients = {};
-    const validFormats = new Set(FORMAT_PRESETS.map(([key]) => key));
 
     for (const item of items) {
       const fieldName = item.dataset.fieldName;
       const numeric = numericFieldNames.has(fieldName);
       const mode = item.querySelector('.column-mode-select').value;
-      const format = item.querySelector('.column-format-select').value;
       if (numeric && (mode === 'bar' || mode === 'heatmap')) {
         modes[fieldName] = mode;
-      }
-      if (validFormats.has(format) && format !== 'tableau') {
-        formats[fieldName] = format;
       }
       if (!numeric) continue;
 
@@ -1783,7 +1625,6 @@
       ? Math.max(0,Math.min(requestedFixedCount,mappedFields.length)) : 0;
 
     columnDisplayModes = modes;
-    columnFormats = formats;
     columnGradients = gradients;
     fixedColumnCount = newFixedCount;
     await saveFixedColumnCount();
@@ -1801,9 +1642,6 @@
     );
     setBusy(false);
   }
-
-  $('showCopyDiagnostics')?.addEventListener('click', () => diagnoseCopy('診断ボタン', copyEnvironment()));
-  diagnoseCopy('診断スクリプト起動', copyEnvironment());
 
   const dataTableElement = $('dataTable');
   dataTableElement.addEventListener('pointerdown', event => {
@@ -1838,8 +1676,7 @@
   });
 
   $('copyCell').addEventListener('click', () => {
-    diagnoseCopy('右クリックメニュー選択', copyEnvironment());
-    copySelectedCell();
+    try { copySelectedCell(); } catch (error) { showError(error); }
   });
 
   document.addEventListener('pointerdown', event => {
