@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tabsdk-data-viewer</title>
-  <link rel="stylesheet" href="./app.css?v=grouped-headers-v8-20261013">
+  <link rel="stylesheet" href="./app.css?v=header-color-v9-20261013">
 </head>
 <body>
   <div class="app">
@@ -61,7 +61,20 @@
             <span>左から固定する列数</span>
             <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
           </label>
-          <div class="settings-help">0で固定なし。列順はTableauの表示列順のままで変更できません。各列の左側で上位ヘッダー、項目名を設定できます。隣接する同名の上位ヘッダーは結合され、空欄なら上位ヘッダーを表示しません。項目名は重複可能です。値の書式はTableau側の設定を使用します。数値列は棒グラフ・ヒートマップと3点の境界値・色を指定できます。</div>
+          <div class="settings-help">0で固定なし。列順はTableauの表示列順のままで変更できません。各列の左側で上位ヘッダー、項目名を設定できます。隣接する同名の上位ヘッダーは結合され、空欄なら上位ヘッダーを表示しません。項目名は重複可能です。値の書式はTableau側の設定を使用します。上位・下位ヘッダーごとに背景色・文字色を設定できます。数値列は棒グラフ・ヒートマップと3点の境界値・色を指定できます。</div>
+          <fieldset class="header-color-settings">
+            <legend>ヘッダー色</legend>
+            <div class="header-color-row">
+              <strong>上位ヘッダー</strong>
+              <label>背景色 <input id="upperHeaderBackground" type="color" value="#f1f3f4"></label>
+              <label>文字色 <input id="upperHeaderText" type="color" value="#202124"></label>
+            </div>
+            <div class="header-color-row">
+              <strong>下位ヘッダー</strong>
+              <label>背景色 <input id="lowerHeaderBackground" type="color" value="#f1f3f4"></label>
+              <label>文字色 <input id="lowerHeaderText" type="color" value="#202124"></label>
+            </div>
+          </fieldset>
           <div id="settingsError" class="settings-error" role="alert" hidden></div>
           <div id="columnSettingsList" class="column-settings-list"></div>
         </div>
@@ -80,6 +93,6 @@
   </div>
 
   <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
-  <script src="./app.js?v=grouped-headers-v8-20261013"></script>
+  <script src="./app.js?v=header-color-v9-20261013"></script>
 </body>
 </html>
