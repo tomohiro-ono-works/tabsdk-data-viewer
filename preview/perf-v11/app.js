@@ -132,6 +132,18 @@
     if (perfEvents.length > 40) perfEvents.pop();
   }
 
+  // Approximate frame scheduling, not browser paint completion. Ignore when the tab is hidden.
+  function perfFrameProbe(trace) {
+    if (typeof window.requestAnimationFrame !== 'function') return;
+    const started = perfNow();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        perfPhase(trace, '参考: 次々フレームまで（描画完了ではない）', started);
+        if (trace.ended) perfRender();
+      });
+    });
+  }
+
   function perfExportText() {
     const lines = [
       '種類\tID\t実行時刻\t操作\t状態\t区間\t所要時間ms\t行数\t表示列数\t表示セル数\t総行数\tReaderページ数'
@@ -1662,6 +1674,7 @@
       }
       setBusy(false);
       perfPhase(trace, '描画: ページ情報・状態表示', pagerStarted);
+      perfFrameProbe(trace);
     } catch (error) {
       trace.status = 'エラー';
       throw error;
