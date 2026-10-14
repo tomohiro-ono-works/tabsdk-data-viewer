@@ -51,11 +51,11 @@
         </div>
         <div class="bench-options">
           <strong>Readerライフサイクル比較</strong>
-          <p>既存Readerの同じページを取得する操作はデータ更新ではありません。データ変更イベント後はReaderを必ず再生成します。「書式なし」は数値・日付などの見え方が変わる可能性があります。</p>
+          <p>既存Readerの同じページを取得する操作はデータ更新ではありません。データ変更イベント後はReaderを必ず再生成します。「書式OFF」はワークシート側の数値・日付書式の適用を無効化する比較です（データソースのフィールド書式まで無効にはしません）。</p>
           <div class="bench-buttons">
             <button id="benchReuse" class="button" type="button" disabled>既存Readerで同じページを取得</button>
-            <button id="benchFormatOn" class="button" type="button">Reader再生成：書式あり</button>
-            <button id="benchFormatOff" class="button" type="button">Reader再生成：書式なし</button>
+            <button id="benchFormatOn" class="button" type="button">Reader再生成：ワークシート書式ON</button>
+            <button id="benchFormatOff" class="button" type="button">Reader再生成：ワークシート書式OFF</button>
           </div>
           <p>通常の再読み込み・自動更新では書式ありに戻ります。Readerは常に1個だけ保持します。</p>
         </div>
