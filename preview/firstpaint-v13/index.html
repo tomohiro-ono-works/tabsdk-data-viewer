@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tabsdk-data-viewer</title>
+  <link rel="stylesheet" href="./app.css?v=firstpaint-v13-20261015">
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <div class="toolbar-paging">
+        <div class="toolbar-page-group">
+          <div id="status" class="toolbar-status">-</div><span id="modeNote" class="mode-note"></span>
+          <nav class="pager" aria-label="ページ移動">
+            <button id="prev" class="button">前へ</button>
+            <span id="page" aria-live="polite">-</span>
+            <button id="next" class="button">次へ</button>
+          </nav>
+        </div>
+        <div class="toolbar-actions">
+          <button id="exportCsv" class="button" disabled>CSV</button>
+          <button id="refreshData" class="button">再読み込み</button>
+          <button id="perfToggle" class="button" type="button">計測結果</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="message" class="message">読み込み中...</div>
+
+      <div id="tableWrap" class="table-wrap">
+        <table id="dataTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+
+    <section id="perfPanel" class="perf-panel" hidden>
+      <div class="perf-card">
+        <div class="perf-heading">
+          <strong>初回表示比較 V13</strong>
+          <button id="perfClose" class="button" type="button">閉じる</button>
+        </div>
+        <div class="perf-explain">
+          V13は2つのTREXで先頭200行の取得方式を変えて比較します。先行表示が失敗した場合はReader方式にフォールバックします。先行結果とReader先頭ページの一致も調査します。
+          API呼び出し時間はJavaScriptから見た待機時間です（Tableau内部処理と通信を区別しません）。
+          「描画: renderTable合計」は内訳を含みます。「列幅算出」はヘッダー生成時間の内数です。
+          区間を単純合計しないでください。
+        </div>
+        <div class="perf-actions">
+          <button id="perfCopy" class="button" type="button">全結果をTSVコピー</button>
+          <button id="perfClear" class="button" type="button">履歴クリア</button>
+          <span id="perfCopyStatus" role="status"></span>
+        </div>
+        <div id="perfResults" class="perf-results" aria-live="polite"></div>
+        <div id="perfEvents" class="perf-events"></div>
+      </div>
+    </section>
+
+    <section id="csvPanel" class="csv-panel" hidden>
+      <div class="csv-card">
+        <strong>CSV分割ダウンロード</strong>
+        <div id="csvStatus" class="csv-status" role="status"></div>
+        <div id="csvDetails" class="csv-details"></div>
+        <div class="csv-actions">
+          <button id="csvSavePart" class="button" disabled>このCSVを保存</button>
+          <button id="csvNextPart" class="button" disabled>次のファイルを作成</button>
+          <button id="csvFinish" class="button">中止</button>
+        </div>
+        <div class="csv-note">最大10万行または32MiBごとにCSVを分割します（Tableauからの取得は5,000行単位）。保存を確認してから次へ進んでください。ファイル保存完了は自動検証できません。</div>
+      </div>
+    </section>
+
+    <section id="settingsPanel" class="settings-panel" hidden>
+      <div class="settings-card">
+        <div class="settings-header">
+          <strong>列設定</strong>
+          <button id="closeSettings" class="button">閉じる</button>
+        </div>
+        <div class="settings-body">
+          <label class="settings-field">
+            <span>左から固定する列数</span>
+            <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
+          </label>
+          <div class="settings-help">0で固定なし。列順はTableauの表示列順のままで変更できません。各列の左側で上位ヘッダー、項目名を設定できます。隣接する同名の上位ヘッダーは結合され、空欄なら上位ヘッダーを表示しません。項目名は重複可能です。値の書式はTableau側の設定を使用します。上位ヘッダーの結合セルごと、下位ヘッダーの各列ごとに背景色と文字色を指定できます。数値列は棒グラフ・ヒートマップと3点の境界値・色を指定できます。</div>
+          <fieldset class="header-color-settings">
+            <legend>上位ヘッダーの色（セル別）</legend>
+            <div id="upperHeaderColorList" class="upper-header-color-list"></div>
+          </fieldset>
+          <div id="settingsError" class="settings-error" role="alert" hidden></div>
+          <div id="columnSettingsList" class="column-settings-list"></div>
+        </div>
+        <div class="settings-footer">
+          <div class="spacer"></div>
+          <button id="cancelSettings" class="button">キャンセル</button>
+          <button id="applySettings" class="button">適用</button>
+        </div>
+      </div>
+    </section>
+
+    <div id="cellMenu" class="cell-menu" role="menu" hidden>
+      <button id="copyCell" class="cell-menu-action" type="button" role="menuitem">選択したセルをコピー</button>
+    </div>
+
+  </div>
+
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <script src="./app.js?v=firstpaint-v13-20261015"></script>
+</body>
+</html>
