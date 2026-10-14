@@ -1747,7 +1747,7 @@
             trace.status='更新により破棄';return;
           }
           if(!early || !Array.isArray(early.columns) || !Array.isArray(early.data) ||
-            early.data.length===0 || resolveDisplayColumns(early).length!==mappedFields.length){
+            (early.data.length===0 || early.data.length>PAGE_SIZE) || resolveDisplayColumns(early).length!==mappedFields.length){
             throw new Error('先行取得の行または列が不足しています');
           }
           previewData=early;
