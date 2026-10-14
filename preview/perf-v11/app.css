@@ -1,0 +1,174 @@
+:root{--blue:#1a73e8;--border:#dadce0;--grid:#e8eaed;--text:#202124;--muted:#5f6368;--bg:#fff;--subtle:#f8f9fa}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0}
+body{font:13px/1.45 Arial,"Noto Sans JP",sans-serif;color:var(--text);background:var(--bg)}
+.app{height:100%;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border)}
+.toolbar{min-height:48px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--border);background:#fff}
+.title{font-size:15px;font-weight:600}.spacer{flex:1}
+.button{min-height:32px;padding:5px 12px;color:#3c4043;background:#fff;border:1px solid var(--border);border-radius:4px;cursor:pointer}
+.button:hover:not(:disabled){background:var(--subtle)}.button:disabled{color:#9aa0a6;background:#f8f9fa;cursor:default}
+.main{min-height:0;flex:1;position:relative}.message{display:none;padding:10px;color:var(--muted);border-bottom:1px solid var(--border)}
+.message.is-error{display:block;color:#b3261e;background:#fce8e6}.message.is-loading{display:block}
+.table-wrap{height:100%;overflow:auto}
+table{width:max-content;min-width:0;border-collapse:separate;border-spacing:0;table-layout:fixed}
+th,td{min-width:0;height:34px;padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-right:1px solid var(--grid);border-bottom:1px solid var(--grid)}
+th{text-align:left}
+td.cell-text{text-align:left}
+td.cell-number{text-align:right;font-variant-numeric:tabular-nums}
+td.cell-date,td.cell-boolean{text-align:center}
+thead th{position:sticky;top:0;z-index:2;background:#f1f3f4;font-weight:600}
+.column-header-label{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:6px}
+.column-resizer{position:absolute;top:0;right:-4px;width:8px;height:100%;z-index:4;cursor:col-resize;touch-action:none}
+.column-resizer::after{content:"";position:absolute;top:7px;bottom:7px;left:3px;width:1px;background:transparent}
+.column-resizer:hover::after{background:#9aa0a6}
+body.is-column-resizing,body.is-column-resizing *{cursor:col-resize!important;user-select:none}
+tbody tr:hover td{background:#e8f0fe}
+.footer{min-height:47px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 12px;color:var(--muted);background:var(--subtle);border-top:1px solid var(--border);font-size:12px}
+.pager{display:flex;align-items:center;gap:8px}#page{min-width:90px;text-align:center;color:var(--text)}
+.settings-panel{position:absolute;inset:0;z-index:20;background:rgba(255,255,255,.92);display:flex;align-items:flex-start;justify-content:flex-end;padding:52px 12px 12px}
+.settings-panel[hidden]{display:none}
+.settings-card{width:min(360px,calc(100% - 24px));max-height:calc(100% - 64px);display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);box-shadow:0 4px 16px rgba(60,64,67,.18)}
+.settings-header,.settings-footer{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border)}
+.settings-footer{border-top:1px solid var(--border);border-bottom:0}
+.settings-body{padding:10px;overflow:auto}
+.settings-help{margin-bottom:8px;color:var(--muted)}
+.column-order-list{display:flex;flex-direction:column;gap:6px}
+.column-order-item{padding:8px 10px;border:1px solid var(--border);background:#fff;cursor:grab;user-select:none}
+.column-order-item.is-dragging{opacity:.45}
+
+.settings-field{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.settings-number{width:84px;height:30px;padding:4px 8px;border:1px solid var(--border);border-radius:3px;font:inherit}
+thead th.fixed-column{z-index:6;background:#f1f3f4}
+tbody td.fixed-column{position:sticky;z-index:1;background:#fff}
+tbody tr:hover td.fixed-column{background:#e8f0fe}
+.fixed-column-boundary{box-shadow:2px 0 0 rgba(60,64,67,.16)}
+
+.column-order-item{display:flex;align-items:center;gap:8px}
+.column-order-handle{flex:0 0 auto;color:var(--muted);cursor:grab}
+.column-order-label{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.column-mode-select{flex:0 0 112px;height:30px;padding:3px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;font:inherit}
+.cell-visual{position:relative}
+.cell-visual-label{position:relative;z-index:1}
+.cell-bar-fill{position:absolute;z-index:0;left:0;top:4px;bottom:4px;background:rgba(26,115,232,.18);pointer-events:none}
+.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
+tbody tr:hover td.cell-heatmap{background:rgba(26,115,232,var(--heat-strength,.08))}
+tbody tr:hover td.cell-bar{background:#e8f0fe}
+
+.toolbar .button{white-space:nowrap}
+
+.app{position:relative}
+.csv-panel{position:absolute;inset:0;z-index:25;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(255,255,255,.97)}
+.csv-panel[hidden]{display:none}
+.csv-card{width:min(540px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px;border:1px solid var(--border);background:#fff}
+.csv-status{color:var(--text)}
+.csv-details{word-break:break-all;color:var(--muted);font-size:12px}
+.csv-actions{display:flex;gap:8px;flex-wrap:wrap}
+.csv-note{font-size:12px;color:var(--muted)}
+
+/* Column-level presentation controls */
+.settings-card{width:min(840px,calc(100vw - 24px));max-height:calc(100% - 54px)}
+.column-order-item{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.column-order-label{flex:1 1 125px;min-width:110px;align-self:center}
+.column-setting-field{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:11px;color:var(--muted)}
+.column-setting-field select{height:32px;max-width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);font:12px Arial,"Noto Sans JP",sans-serif}
+.column-mode-select{width:128px}
+.column-color-field{width:58px}
+.column-color-field[hidden]{display:none}
+.column-color-input{width:52px;height:32px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.column-order-handle{align-self:center}
+
+.column-setting-field .column-mode-select{flex:0 0 auto}
+
+/* Stable column settings; column ordering belongs to Tableau. */
+.column-settings-list{display:flex;flex-direction:column;gap:8px}
+.column-setting-item{padding:10px;border:1px solid var(--border);display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;background:#fff}
+.column-setting-name{flex:1 1 140px;min-width:120px;align-self:center;word-break:break-word}
+.column-gradient-settings{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px;border:1px solid var(--grid);background:var(--subtle);border-radius:4px}
+.column-gradient-settings[hidden]{display:none}
+.column-gradient-description{flex:1 0 100%;color:var(--muted);font-size:11px}
+.column-gradient-stop{display:flex;align-items:center;gap:6px;flex:1 1 160px;min-width:150px}
+.column-gradient-label{font-size:12px;white-space:nowrap}
+.column-gradient-boundary{width:95px;max-width:100%;height:32px;padding:4px 6px;border:1px solid var(--border);background:#fff;border-radius:3px;font:inherit}
+.column-gradient-color{width:45px;height:32px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.settings-error{padding:8px;margin-bottom:10px;color:#b3261e;border:1px solid #f0b5b0;background:#fce8e6}
+.settings-error[hidden]{display:none}
+tbody td.is-selected-cell,tbody tr:hover td.is-selected-cell{outline:2px solid var(--blue);outline-offset:-2px;background-color:#e8f0fe}
+.cell-menu{position:fixed;z-index:40;min-width:145px;padding:4px;border:1px solid var(--border);border-radius:4px;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.cell-menu[hidden]{display:none}
+.cell-menu-action{display:block;width:100%;padding:9px 12px;border:0;background:#fff;text-align:left;font:inherit;cursor:pointer;color:var(--text)}
+.cell-menu-action:hover,.cell-menu-action:focus-visible{background:var(--subtle)}
+
+/* Compact toolbar: page summary + navigation on left, export/refresh on same row. */
+.app{min-width:0;min-height:0}
+.toolbar{flex:0 0 auto;display:flex;align-items:stretch;min-width:0;min-height:0;padding:0;border-bottom:1px solid var(--border);background:var(--subtle)}
+.toolbar-paging{width:100%;min-width:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:6px 12px;padding:6px 8px}
+.toolbar-page-group{min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px}
+.toolbar-status{min-width:0;flex:0 1 auto;font-size:11px;color:var(--muted);white-space:nowrap}
+.toolbar-paging .pager{flex:0 0 auto;display:flex;align-items:center;gap:6px}
+.toolbar-paging .button{min-height:28px;padding:3px 8px;white-space:nowrap}
+.toolbar-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+#page{min-width:64px;text-align:center;font-size:12px}
+.main{min-height:0;min-width:0;flex:1 1 auto;overflow:hidden}
+.table-wrap{min-height:0;min-width:0;height:100%;overflow:auto;overscroll-behavior:contain}
+@media(max-width:350px){
+  .toolbar-paging{gap:4px 8px;padding:4px 5px}
+  .toolbar-page-group,.toolbar-paging .pager,.toolbar-actions{gap:4px}
+  .toolbar-paging .button{padding:3px 6px}
+  #page{min-width:50px}
+}
+
+/* Excel-style rectangular selection. Must override row hover and heatmap backgrounds. */
+.table-wrap{user-select:none;-webkit-user-select:none}
+tbody td.is-selected-cell,
+tbody tr:hover td.is-selected-cell,
+tbody tr:hover td.is-selected-cell.cell-heatmap,
+tbody td.is-selected-cell.cell-heatmap{background:#d2e3fc!important;outline:1px solid #7baaf7;outline-offset:-1px}
+tbody td.is-selected-cell.cell-bar .cell-bar-fill{opacity:.7}
+
+/* Two-level Tableau worksheet headers. A blank upper label spans both rows. */
+thead tr.header-group-row th{top:0;height:34px}
+thead tr.header-detail-row th{top:34px;height:34px}
+thead tr.header-group-row th[rowspan="2"]{top:0;vertical-align:middle}
+thead th.header-group-cell{text-align:center;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+thead th.header-group-cell.fixed-column{z-index:7}
+.column-header-fields{display:flex;flex:1 1 360px;flex-wrap:wrap;gap:8px;min-width:0;order:0}
+.column-header-field{flex:1 1 175px;min-width:155px}
+.column-header-field input{height:32px;width:100%;max-width:100%;border:1px solid var(--border);border-radius:3px;background:#fff;color:var(--text);padding:4px 7px;font:12px Arial,"Noto Sans JP",sans-serif}
+.column-source-name{order:2;flex:1 0 100%;min-width:0;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.column-setting-item>.column-setting-field{order:1}
+.column-setting-item>.column-gradient-settings{order:3}
+
+/* Per-cell palettes: each lower field and each actual merged upper cell. */
+.header-color-settings{margin:10px 0 12px;padding:10px;border:1px solid var(--border);border-radius:3px}
+.header-color-settings legend{padding:0 5px;font-size:12px;font-weight:600}
+.upper-header-color-list{display:flex;flex-direction:column;gap:8px}
+.upper-color-item{padding:8px;border:1px solid var(--grid);display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.upper-color-item>strong{flex:1 1 180px;font-size:12px;overflow-wrap:anywhere}
+.header-color-empty{font-size:12px;color:var(--muted)}
+.header-cell-color-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.header-cell-color-label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.header-cell-color-input{width:42px;height:30px;padding:2px;border:1px solid var(--border);border-radius:3px;background:#fff;cursor:pointer}
+.lower-header-colors{order:1;flex:1 1 220px;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.lower-header-colors>strong{font-size:11px;color:var(--muted);font-weight:600}
+.column-source-name{order:-1;flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;padding-bottom:5px;border-bottom:1px solid var(--grid)}
+.column-source-name strong{color:var(--text);font-size:12px;font-weight:600;overflow-wrap:anywhere}
+
+
+/* V11-only lightweight performance breakdown, separate from the workbook settings. */
+.perf-panel{position:absolute;inset:0;z-index:22;background:rgba(255,255,255,.95);padding:8px;display:flex;justify-content:flex-end;align-items:stretch}
+.perf-panel[hidden]{display:none}
+.perf-card{width:min(690px,100%);height:100%;min-height:0;border:1px solid var(--border);background:#fff;box-shadow:0 4px 18px rgba(60,64,67,.16);display:flex;flex-direction:column;gap:0}
+.perf-heading{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border)}
+.perf-explain{padding:10px 12px;color:var(--muted);font-size:12px;line-height:1.5;border-bottom:1px solid var(--border)}
+.perf-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:8px 12px;border-bottom:1px solid var(--border)}
+#perfCopyStatus{font-size:12px;color:var(--muted)}
+.perf-results{flex:1;min-height:0;overflow:auto;padding:8px 12px}
+.perf-run{margin:6px 0;border:1px solid var(--border);background:#fff;overflow:hidden}
+.perf-run summary{cursor:pointer;padding:9px;background:var(--subtle);font-weight:600;font-size:12px;white-space:normal}
+.perf-run[open] summary{border-bottom:1px solid var(--border)}
+.perf-meta{font-size:11px;color:var(--muted);padding:7px 10px;overflow-wrap:anywhere}
+.perf-table{table-layout:auto;width:100%;font-size:12px;border-collapse:collapse;border-spacing:0}
+.perf-table th,.perf-table td{position:static!important;min-width:0;height:auto;white-space:normal;padding:6px 10px;background:#fff;color:var(--text);vertical-align:top}
+.perf-table th{text-align:left;background:var(--subtle);font-weight:600}
+.perf-table th:last-child,.perf-table td:last-child{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.perf-events{padding:8px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
