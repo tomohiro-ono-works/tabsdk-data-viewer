@@ -190,6 +190,23 @@
         (trace.info.totalRows ?? '-') + ' / Readerページ数: ' +
         (trace.info.pageCount ?? '-') + ' / ' + trace.wallTime;
       section.appendChild(meta);
+      const candidates = trace.phases.filter(phase =>
+        phase.label.startsWith('API:') ||
+        phase.label === '描画: renderTable合計' ||
+        phase.label === '設定: ローカル設定の読み込み' ||
+        phase.label === 'イベント: 登録'
+      );
+      if (candidates.length && trace.totalMs !== undefined) {
+        const largest = candidates.reduce((a, b) => a.ms >= b.ms ? a : b);
+        const summaryLine = document.createElement('div');
+        summaryLine.className = 'perf-bottleneck';
+        const share = trace.totalMs > 0
+          ? Math.round(largest.ms / trace.totalMs * 100) : 0;
+        summaryLine.textContent = '最長の単独区間: ' + largest.label +
+          ' / ' + largest.ms.toFixed(2) + ' ms（全体の約' + share +
+          '%）。実測区間の比較であり、原因の断定ではありません。';
+        section.appendChild(summaryLine);
+      }
       const table = document.createElement('table');
       table.className = 'perf-table';
       const head = document.createElement('tr');
