@@ -172,3 +172,5 @@ thead th.header-group-cell.fixed-column{z-index:7}
 .perf-table th{text-align:left;background:var(--subtle);font-weight:600}
 .perf-table th:last-child,.perf-table td:last-child{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .perf-events{padding:8px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
+
+.perf-bottleneck{padding:7px 10px;background:var(--subtle);border-top:1px solid var(--grid);font-size:11px;color:var(--text);line-height:1.5}
