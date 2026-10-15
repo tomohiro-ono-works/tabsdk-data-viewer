@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tableau Layout Probe V15</title>
+  <link rel="stylesheet" href="./app.css?v=layout-probe-v15-20261015">
+</head>
+<body>
+  <main class="app">
+    <header><h1>V15｜レイアウト計算 検証専用</h1><div class="sub">本番Data Viewerではありません。データ値の表示・編集・CSV出力は行いません。</div></header>
+    <section class="notice">
+      <strong>実験条件</strong>
+      <p>別のワークシート上で、同じ50万行Excelに対し「検証用メジャー」に数値の集計メジャー1つだけを割り当てます。ほかのディメンションをDetail/Tooltipなどへ置かないでください。</p>
+      <p>既存の「表示列」15列は移行しません。実行結果が正しくても、本番版への変更は自動的に行いません。</p>
+    </section>
+    <section class="controls">
+      <button id="arm" type="button">フィールド操作前に時刻記録</button>
+      <button id="probe" type="button" disabled>Underlying取得を検証</button>
+      <button id="copy" type="button">計測ログをTSVコピー</button>
+      <button id="clear" type="button">ログクリア</button>
+    </section>
+    <section class="summary">
+      <div><span>状態</span><b id="status">初期化中</b></div>
+      <div><span>フィールド設定</span><b id="mapping">未確認</b></div>
+      <div><span>操作前記録からイベントまで</span><b id="wait">未計測</b></div>
+      <div><span>Underlying Reader行数</span><b id="rows">未取得</b></div>
+      <div><span>Underlyingのテーブル</span><b id="tables">未取得</b></div>
+    </section>
+    <p class="explanation">※「操作前記録からイベントまで」にはドラッグ操作時間が含まれます。Tableau内部の「Computing layouts」の33秒と厳密に比較するには、Tableauのパフォーマンス記録を併用してください。</p>
+    <section class="logs"><h2>計測ログ</h2><pre id="logs" aria-live="polite">起動待機中</pre></section>
+    <span id="copyStatus" aria-live="polite"></span>
+  </main>
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <script src="./app.js?v=layout-probe-v15-20261015"></script>
+</body>
+</html>
