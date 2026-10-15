@@ -166,7 +166,7 @@
       for (const phase of trace.phases) lines.push(values(phase.label, phase.ms));
     }
     for (const evt of [...perfEvents].reverse()) {
-      lines.push(['イベント', '', evt.time, evt.reason, '', '', '', '', '', '', '', '', '', ''].join('\t'));
+      lines.push(['イベント', '', evt.time, evt.reason, '', '', '', '', '', '', '', '', '', '', ''].join('\t'));
     }
     return lines.join('\r\n');
   }
