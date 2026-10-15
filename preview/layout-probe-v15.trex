@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest manifest-version="0.1" xmlns="http://www.tableau.com/xml/extension_manifest">
+  <worksheet-extension id="com.example.tabsdk-data-viewer-layout-probe-v15" extension-version="0.21.0">
+    <default-locale>ja_JP</default-locale>
+    <name resource-id="name"/>
+    <description>50万行レイアウト計算検証専用。少数マーク構成とUnderlying Data Readerの可否・時間のみを測定し、実データ値は描画しません。</description>
+    <author name="Development Team" email="support@example.com" organization="Example" website="https://example.com"/>
+    <min-api-version>1.11</min-api-version>
+    <source-location>
+      <url>https://tomohiro-ono-works.github.io/tabsdk-data-viewer/preview/layout-probe-v15/index.html?preview=layout-probe-v15-20261015</url>
+    </source-location>
+    <icon/>
+    <permissions>
+      <permission>full data</permission>
+    </permissions>
+    <context-menu>
+      <configure-context-menu-item />
+    </context-menu>
+    <encoding id="probe">
+      <display-name>検証用メジャー（1個）</display-name>
+      <data-spec><data-type>numeric</data-type></data-spec>
+      <role-spec><role-type>continuous-measure</role-type></role-spec>
+      <fields max-count="1"/>
+    </encoding>
+  </worksheet-extension>
+  <resources>
+    <resource id="name"><text locale="ja_JP">Data Viewer Layout Probe V15</text></resource>
+  </resources>
+</manifest>
