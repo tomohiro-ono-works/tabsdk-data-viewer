@@ -4,24 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tabsdk-data-viewer</title>
-  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./app.css?v=header-per-cell-v10-20261013">
 </head>
 <body>
   <div class="app">
     <header class="toolbar">
-      <div class="toolbar-main">
-        <div class="title">Data Viewer</div>
-        <div class="spacer"></div>
-        <button id="exportCsv" class="button" disabled>CSV</button>
-        <button id="refreshData" class="button">再読み込み</button>
-      </div>
       <div class="toolbar-paging">
-        <div id="status" class="toolbar-status">-</div>
-        <nav class="pager" aria-label="ページ移動">
-          <button id="prev" class="button">前へ</button>
-          <span id="page" aria-live="polite">-</span>
-          <button id="next" class="button">次へ</button>
-        </nav>
+        <div class="toolbar-page-group">
+          <div id="status" class="toolbar-status">-</div>
+          <nav class="pager" aria-label="ページ移動">
+            <button id="prev" class="button">前へ</button>
+            <span id="page" aria-live="polite">-</span>
+            <button id="next" class="button">次へ</button>
+          </nav>
+        </div>
+        <div class="toolbar-actions">
+          <button id="exportCsv" class="button" disabled>CSV</button>
+          <button id="refreshData" class="button">再読み込み</button>
+        </div>
       </div>
     </header>
 
@@ -61,7 +61,11 @@
             <span>左から固定する列数</span>
             <input id="fixedColumnCount" class="settings-number" type="number" min="0" step="1" value="0">
           </label>
-          <div class="settings-help">0で固定なし。列順はTableauの「表示列」の順序を使用します。各列の表示書式を設定でき、数値列は棒グラフ・ヒートマップと下限・中間・上限の境界値と色を指定できます。％は元の値に100を掛けて表示します。CSVにも書式を適用します。</div>
+          <div class="settings-help">0で固定なし。列順はTableauの表示列順のままで変更できません。各列の左側で上位ヘッダー、項目名を設定できます。隣接する同名の上位ヘッダーは結合され、空欄なら上位ヘッダーを表示しません。項目名は重複可能です。値の書式はTableau側の設定を使用します。上位ヘッダーの結合セルごと、下位ヘッダーの各列ごとに背景色と文字色を指定できます。数値列は棒グラフ・ヒートマップと3点の境界値・色を指定できます。</div>
+          <fieldset class="header-color-settings">
+            <legend>上位ヘッダーの色（セル別）</legend>
+            <div id="upperHeaderColorList" class="upper-header-color-list"></div>
+          </fieldset>
           <div id="settingsError" class="settings-error" role="alert" hidden></div>
           <div id="columnSettingsList" class="column-settings-list"></div>
         </div>
@@ -80,6 +84,6 @@
   </div>
 
   <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=header-per-cell-v10-20261013"></script>
 </body>
 </html>
